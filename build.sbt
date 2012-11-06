@@ -1,3 +1,6 @@
+import AssemblyKeys._ // put this at the top of the file
+
+
 name := "GraphLab"
 
 version := "1.0"
@@ -21,4 +24,8 @@ resolvers ++= Seq(
             "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/"
 )
 
+
+
+
+assemblySettings
 
