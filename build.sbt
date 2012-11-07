@@ -1,11 +1,26 @@
 import AssemblyKeys._ // put this at the top of the file
 
 
+assemblySettings
+
+
 name := "GraphLab"
 
 version := "1.0"
 
 scalaVersion := "2.9.2"
+
+
+
+
+resolvers ++= Seq(
+      "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/",
+      "JBoss Repository" at "http://repository.jboss.org/nexus/content/repositories/releases/",
+      "Spray Repository" at "http://repo.spray.cc/",
+      "Cloudera Repository" at "https://repository.cloudera.com/artifactory/cloudera-repos/",
+      "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/"
+    )
+
 
 
 
@@ -19,11 +34,18 @@ libraryDependencies  ++= Seq(
 )
 
 
-// Add Akka actor framework for communication
+
 libraryDependencies += "com.typesafe.akka" % "akka-actor" % "2.0.3"
 
 
-assemblySettings
+libraryDependencies += "com.typesafe.akka" % "akka-remote" % "2.0.3"
+
+
+libraryDependencies += "com.typesafe.akka" % "akka-slf4j" % "2.0.3"
+
+
+
+
 
 
 
