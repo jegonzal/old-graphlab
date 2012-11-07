@@ -18,14 +18,12 @@ libraryDependencies  ++= Seq(
             "org.scalanlp" %% "breeze-viz" % "0.1"
 )
 
-resolvers ++= Seq(
-            // other resolvers here
-            // if you want to use snapshot builds (currently 0.2-SNAPSHOT), use this.
-            "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/"
-)
 
-
+// Add Akka actor framework for communication
+libraryDependencies += "com.typesafe.akka" % "akka-actor" % "2.0.3"
 
 
 assemblySettings
+
+
 
