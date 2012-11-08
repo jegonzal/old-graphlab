@@ -11,8 +11,6 @@ version := "1.0-spark"
 scalaVersion := "2.9.2"
 
 
-
-
 resolvers ++= Seq(
       "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/",
       "JBoss Repository" at "http://repository.jboss.org/nexus/content/repositories/releases/",
@@ -20,8 +18,6 @@ resolvers ++= Seq(
       "Cloudera Repository" at "https://repository.cloudera.com/artifactory/cloudera-repos/",
       "Sonatype Snapshots" at "https://oss.sonatype.org/content/repositories/snapshots/"
     )
-
-
 
 
 libraryDependencies  ++= Seq(
