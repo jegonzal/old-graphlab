@@ -5,6 +5,7 @@ import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.channel.*;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.Date;
 import java.util.concurrent.Executors;
@@ -35,7 +36,11 @@ public class SlaveClientTest {
 
         public void channelConnected(ChannelHandlerContext ctx, ChannelStateEvent e) {
             System.out.println("Channel connected!" + e.getChannel());
-            e.getChannel().write(new HandshakeMessage(3, "jee jee", 245));
+            try {
+                e.getChannel().write(new HandshakeMessage(99, InetAddress.getLocalHost().getHostName(), 245));
+            } catch (Exception err) {
+                err.printStackTrace();
+            }
         }
 
         public void handleUpstream(
@@ -63,11 +68,10 @@ public class SlaveClientTest {
         bootstrap.setPipelineFactory(new ChannelPipelineFactory() {
             public ChannelPipeline getPipeline() {
                 ChannelPipeline pipeline = pipeline();
-                pipeline.addLast("encoder", HandshakeMessage.encoder());
+                pipeline.addLast("encoder", GraphLabMessage.encoder());
                 pipeline.addLast("handler", new SlaveClientHandler());
                 return pipeline;
             }
-
         });
 
         bootstrap.setOption("tcpNoDelay", true);

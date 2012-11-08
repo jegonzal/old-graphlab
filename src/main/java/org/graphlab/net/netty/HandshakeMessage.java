@@ -11,12 +11,13 @@ import static org.jboss.netty.buffer.ChannelBuffers.*;
 /**
  *
  */
-public class HandshakeMessage {
+public class HandshakeMessage extends GraphLabMessage {
     private int nodeId;
     private String address;
     private int port;
 
     public HandshakeMessage(int nodeId, String address, int port) {
+        super(MessageIds.HANDSHAKE);
         this.nodeId = nodeId;
         this.address = address;
         this.port = port;
@@ -46,22 +47,13 @@ public class HandshakeMessage {
         this.port = port;
     }
 
-    public static OneToOneEncoder encoder() {
-        return new OneToOneEncoder () {
-
-            protected Object encode(
-                  ChannelHandlerContext ctx, Channel channel, Object msg) throws Exception {
-                HandshakeMessage handshake = (HandshakeMessage) msg;
-
-                byte[] addrBytes = handshake.address.getBytes();
-                ChannelBuffer buf = ChannelBuffers.dynamicBuffer();
-                buf.writeShort(MessageIds.HANDSHAKE);
-                buf.writeInt(handshake.nodeId);
-                buf.writeInt(addrBytes.length);
-                buf.writeBytes(addrBytes);
-                buf.writeInt(handshake.port);
-                return buf;
-            }
-        };
+    @Override
+    public void encode(ChannelBuffer buf) {
+        byte[] addrBytes = address.getBytes();
+        buf.writeInt(nodeId);
+        buf.writeInt(addrBytes.length);
+        buf.writeBytes(addrBytes);
+        buf.writeInt(port);
     }
+
 }
