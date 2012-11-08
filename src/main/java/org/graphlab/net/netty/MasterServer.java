@@ -1,6 +1,8 @@
 package org.graphlab.net.netty;
 
 import org.graphlab.net.GraphLabNodeInfo;
+import org.graphlab.net.Master;
+import org.graphlab.net.netty.messages.FinishedPhaseMessage;
 import org.graphlab.net.netty.messages.HandshakeMessage;
 import org.graphlab.net.netty.messages.NodeInfoMessage;
 import org.jboss.netty.bootstrap.ServerBootstrap;
@@ -24,6 +26,7 @@ public class MasterServer{
 
     static {
         HandshakeMessage.register();
+        FinishedPhaseMessage.register();
     }
 
     private Map<Integer, Integer> channelIdToNodeId =
@@ -33,7 +36,11 @@ public class MasterServer{
     private Map<Integer, Channel> nodesToChannels =
             Collections.synchronizedMap(new HashMap<Integer, Channel>());
 
-    public MasterServer() {}
+    private Master master;
+
+    public MasterServer(Master master) {
+        this.master = master;
+    }
 
     public void start() {
         ChannelFactory factory =  new NioServerSocketChannelFactory(
@@ -57,6 +64,19 @@ public class MasterServer{
         bootstrap.bind(new InetSocketAddress(3333));
     }
 
+    public int getNumOfRegisteredNodes() {
+        return nodes.size();
+    }
+
+    public void sendClient(int nodeId, GraphLabMessage message) {
+        Channel channel = nodesToChannels.get(nodeId);
+        System.out.println("Send to " + nodeId + " , message=" + message);
+        if (channel != null) {
+            channel.write(message);
+        }  else {
+            throw new IllegalStateException("No channel for node: " + nodeId);
+        }
+    }
 
     private class MasterServerHandler  extends SimpleChannelHandler {
         public void handleUpstream(
@@ -79,15 +99,6 @@ public class MasterServer{
             System.out.println("Disconnected by " + channelId + ": nodes now: " + nodes);
         }
 
-        protected void sendClient(int nodeId, GraphLabMessage message) {
-            Channel channel = nodesToChannels.get(nodeId);
-            System.out.println("Send to " + nodeId + " , message=" + message);
-            if (channel != null) {
-                channel.write(message);
-            }  else {
-                throw new IllegalStateException("No channel for node: " + nodeId);
-            }
-        }
 
 
         public void messageReceived(ChannelHandlerContext ctx, MessageEvent e)  throws Exception {
@@ -117,11 +128,10 @@ public class MasterServer{
                         }
 
                         // Register
+                        GraphLabNodeInfo nodeInfo =  new GraphLabNodeInfo(handshake.getNodeId(),
+                                InetAddress.getByName(handshake.getAddress()),
+                                handshake.getPort());
                         synchronized (this) {
-
-                            GraphLabNodeInfo nodeInfo =  new GraphLabNodeInfo(handshake.getNodeId(),
-                                    InetAddress.getByName(handshake.getAddress()),
-                                    handshake.getPort());
                             nodes.put(handshake.getNodeId(),
                                     nodeInfo);
                             channelIdToNodeId.put(e.getChannel().getId(), handshake.getNodeId());
@@ -136,11 +146,16 @@ public class MasterServer{
                                     sendClient(nodeInfo.getId(), new NodeInfoMessage(nodes.get(nodeId)));
                                 }
                             }
-
-
                         }
-
+                        master.remoteRegisterSlave(nodeInfo);
                         System.out.println("Nodes now: " + nodes);
+                        break;
+                    case MessageIds.FINISHED_PHASE:
+                        FinishedPhaseMessage finishedPhaseMessage = (FinishedPhaseMessage)
+                                MessageIds.getDecoder(message).decode(buf);
+                        int nodeId = channelIdToNodeId.get(e.getChannel().getId()); // Can we store it in the context?
+                        System.out.println("FInish: " + finishedPhaseMessage + " , master=" + master);
+                        master.remoteFinishedPhase(nodeId, finishedPhaseMessage.getPhase());
                         break;
                 }
             }
@@ -148,8 +163,4 @@ public class MasterServer{
 
     }
 
-    public static void main(String[] args) {
-        MasterServer master = new MasterServer();
-        master.start();
-    }
 }

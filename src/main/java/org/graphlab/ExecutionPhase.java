@@ -17,4 +17,11 @@ public class ExecutionPhase {
     public int getPhaseNum() {
         return phaseNum;
     }
+
+    public String toString() {
+        if (phaseNum == GATHER) return "GATHER";
+        else if (phaseNum == APPLY) return "APPLY";
+        else if (phaseNum == SCATTER) return "SCATTER";
+        return "????";
+    }
 }

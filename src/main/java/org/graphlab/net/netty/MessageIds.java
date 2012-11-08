@@ -15,6 +15,7 @@ public class MessageIds {
     public static final short VERTEXVALUES = 3;
     public static final short GATHERVALUES = 4;
     public static final short NODEINFO = 5;
+    public static final short FINISHED_PHASE = 6;
 
 
 

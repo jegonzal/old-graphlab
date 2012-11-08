@@ -2,6 +2,8 @@ package org.graphlab.net.netty;
 
 import org.graphlab.net.GraphLabNode;
 import org.graphlab.net.GraphLabNodeInfo;
+import org.graphlab.net.netty.messages.ExecutePhaseMessage;
+import org.graphlab.net.netty.messages.FinishedPhaseMessage;
 import org.graphlab.net.netty.messages.HandshakeMessage;
 import org.graphlab.net.netty.messages.NodeInfoMessage;
 import org.jboss.netty.bootstrap.ClientBootstrap;
@@ -28,6 +30,7 @@ public class SlaveImplementation {
     private HashMap<Integer, Channel> nodeToNodeChannels = new HashMap<Integer, Channel>();
     private GraphLabNode graphlabNode;
     private ClientBootstrap clientBootstrap;
+    private Channel masterChannel;
     private String host;
     private String masterHost;
     private int port;
@@ -86,13 +89,14 @@ public class SlaveImplementation {
 
         ChannelFuture outChannel = clientBootstrap.connect(new InetSocketAddress(masterHost, 3333));
 
-        Channel channel = outChannel.awaitUninterruptibly().getChannel();
+        masterChannel = outChannel.awaitUninterruptibly().getChannel();
         // Send handshake
-        channel.write(new HandshakeMessage(this.id, this.host, this.port));
+        masterChannel.write(new HandshakeMessage(this.id, this.host, this.port));
     }
 
     static {
         NodeInfoMessage.register();
+        ExecutePhaseMessage.register();
     }
 
     class SlaveServerHandler extends SimpleChannelUpstreamHandler {
@@ -122,6 +126,9 @@ public class SlaveImplementation {
         nodeToNodeChannels.get(nodeId).write(message);
     }
 
+    public void sendToMaster(GraphLabMessage message) {
+
+    }
 
     class SlaveClientHandler extends SimpleChannelHandler {
 
@@ -134,11 +141,23 @@ public class SlaveImplementation {
                 switch(message) {
                     case MessageIds.NODEINFO:
                         NodeInfoMessage nodeInfoMessage = (NodeInfoMessage)
-                                MessageIds.getDecoder(MessageIds.NODEINFO).decode(buf);
+                                MessageIds.getDecoder(message).decode(buf);
                         GraphLabNodeInfo nodeInfo = nodeInfoMessage.getNodeInfo();
                         otherNodes.put(nodeInfo.getId(), nodeInfo);
                         System.out.println("Other nodes: " +  nodeInfo);
                         connectToSlave(nodeInfo);
+                        break;
+                    case MessageIds.EXECUTEPHASE:
+                        ExecutePhaseMessage execPhaseMsg = (ExecutePhaseMessage) MessageIds.getDecoder(message).decode(buf);
+                        System.out.println("Move to phase: " + execPhaseMsg.getPhase());
+                        System.out.println("From vertex: " + execPhaseMsg.getFromVertex() + " -- " + execPhaseMsg.getToVertex());
+                        try {
+                            Thread.sleep(500l);
+                        } catch (InterruptedException e1) { }
+
+                        masterChannel.write(new FinishedPhaseMessage(execPhaseMsg.getPhase(),
+                                execPhaseMsg.getFromVertex(), execPhaseMsg.getToVertex()));
+                        break;
                 }
 
             }
