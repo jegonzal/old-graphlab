@@ -9,6 +9,19 @@ class Graph[VD, ED] (
 
   def cache { edges.cache}
 
+  def iterateGAS[A](
+      gather: ((Int, VD), ED, (Int, VD)) => (A, ED),
+      sum: (A,A) => A,
+      apply: ((Int, VD), A) => VD,
+      scatter: ((Int, VD), ED, (Int, VD)) => ED,
+      niter: Int,
+      gather_edges: String  = "in",
+      scatter_edges: String = "out") = {
+    
+    
+    
+    
+  }
 }
 
 object Graph {
