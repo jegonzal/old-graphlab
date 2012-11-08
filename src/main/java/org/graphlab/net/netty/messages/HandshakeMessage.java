@@ -1,5 +1,7 @@
-package org.graphlab.net.netty;
+package org.graphlab.net.netty.messages;
 
+import org.graphlab.net.netty.GraphLabMessage;
+import org.graphlab.net.netty.MessageIds;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.channel.*;
