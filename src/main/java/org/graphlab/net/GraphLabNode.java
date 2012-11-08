@@ -7,11 +7,10 @@ import sun.rmi.rmic.iiop.ValueType;
  */
 public interface GraphLabNode {
 
-    <VT> void receiveVertexData(int fromNode, int[] vertexIds, VT[] vertexData);
+    <VT> void remoteReceiveVertexData(int fromNode, int[] vertexIds, VT[] vertexData);
 
-    <GT> void receiveGathers(int fromNode, int[] vertexIds, GT[] vertexData);
+    <GT> void remoteReceiveGathers(int fromNode, int[] vertexIds, GT[] vertexData);
 
-
-    void startPhase(ExecutionPhase phase, int fromVertex, int toVertex);
+    void remoteStartPhase(ExecutionPhase phase, int fromVertex, int toVertex);
 
 }

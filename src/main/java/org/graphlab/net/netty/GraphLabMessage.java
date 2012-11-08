@@ -33,4 +33,11 @@ public abstract class GraphLabMessage {
         };
     }
 
+    public static String readString(ChannelBuffer buf) {
+        int numBytes = buf.readInt();
+        byte[] bytes = new byte[numBytes];
+        buf.readBytes(bytes);
+        return new String(bytes);
+    }
+
 }

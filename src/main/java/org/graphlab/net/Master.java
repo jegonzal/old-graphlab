@@ -12,10 +12,10 @@ import org.graphlab.*;
  */
 public interface Master {
 
-    void registerSlave(GraphLabNodeInfo node);
+    void remoteRegisterSlave(GraphLabNodeInfo node);
 
-    void finishedStage(int nodeId, ExecutionPhase phase);
+    void remoteFinishedStage(int nodeId, ExecutionPhase phase);
 
-    HashMap<Integer, GraphLabNodeInfo> getNodes();
+    HashMap<Integer, GraphLabNodeInfo> remoteGetNodes();
 
 }

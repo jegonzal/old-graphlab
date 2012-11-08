@@ -1,6 +1,7 @@
 package org.graphlab.net.netty.messages;
 
 import org.graphlab.net.netty.GraphLabMessage;
+import org.graphlab.net.netty.GraphLabMessageDecoder;
 import org.graphlab.net.netty.MessageIds;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
@@ -17,6 +18,21 @@ public class HandshakeMessage extends GraphLabMessage {
     private int nodeId;
     private String address;
     private int port;
+
+    public static void register() {
+        MessageIds.registerDecoder(MessageIds.HANDSHAKE, new GraphLabMessageDecoder() {
+            @Override
+            public GraphLabMessage decode(ChannelBuffer buf) {
+                int nodeId = buf.readInt();
+                String address = GraphLabMessage.readString(buf);
+                int port = buf.readInt();
+                return new HandshakeMessage(nodeId, address, port);
+            }
+        });
+    }
+    static {
+        register();
+    }
 
     public HandshakeMessage(int nodeId, String address, int port) {
         super(MessageIds.HANDSHAKE);
@@ -59,3 +75,4 @@ public class HandshakeMessage extends GraphLabMessage {
     }
 
 }
+

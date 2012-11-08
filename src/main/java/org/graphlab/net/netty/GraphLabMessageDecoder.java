@@ -1,11 +1,12 @@
 package org.graphlab.net.netty;
 
+import org.jboss.netty.buffer.ChannelBuffer;
+
 /**
- * Created with IntelliJ IDEA.
- * User: akyrola
- * Date: 11/8/12
- * Time: 10:55 AM
- * To change this template use File | Settings | File Templates.
+ *
  */
 public interface GraphLabMessageDecoder {
+
+    GraphLabMessage decode(ChannelBuffer buffer);
+
 }

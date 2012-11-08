@@ -1,5 +1,6 @@
 package org.graphlab.net.netty;
 
+import org.graphlab.net.netty.messages.HandshakeMessage;
 import org.jboss.netty.bootstrap.ClientBootstrap;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.channel.*;

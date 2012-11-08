@@ -1,6 +1,7 @@
 package org.graphlab.net.netty;
 
 import org.graphlab.net.GraphLabNodeInfo;
+import org.graphlab.net.netty.messages.HandshakeMessage;
 import org.jboss.netty.bootstrap.ServerBootstrap;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.channel.*;
@@ -19,6 +20,10 @@ import static org.jboss.netty.channel.Channels.*;
  *
  */
 public class MasterServer extends SimpleChannelUpstreamHandler {
+
+    static {
+        HandshakeMessage.register();
+    }
 
     private Map<Integer, Integer> channelIdToNodeId =
             Collections.synchronizedMap(new HashMap<Integer, Integer>());
@@ -53,17 +58,15 @@ public class MasterServer extends SimpleChannelUpstreamHandler {
 
             switch(message) {
                 case MessageIds.HANDSHAKE:
-                    int nodeId = buf.readInt();
-                    String address = readString(buf);
-                    int port = buf.readInt();
-                    System.out.println("Handshake from: " + address + ":" + port);
+                    HandshakeMessage handshake = (HandshakeMessage)
+                            MessageIds.getDecoder(MessageIds.HANDSHAKE).decode(buf);
 
                     // Must be faster way to do this..
-                    if (channelIdToNodeId.values().contains(nodeId)) {
+                    if (channelIdToNodeId.values().contains(handshake.getNodeId())) {
                         System.out.println("Warning: already had node id, replacing");
                         Integer keyToRemove = null;
                         for(Map.Entry<Integer, Integer> entry : channelIdToNodeId.entrySet()) {
-                             if (entry.getValue() == nodeId) {
+                             if (entry.getValue() == handshake.getNodeId()) {
                                  keyToRemove = entry.getKey();
                                  break;
                              }
@@ -72,8 +75,11 @@ public class MasterServer extends SimpleChannelUpstreamHandler {
                     }
 
                     // Register
-                    nodes.put(nodeId, new GraphLabNodeInfo(nodeId, InetAddress.getByName(address), port));
-                    channelIdToNodeId.put(e.getChannel().getId(), nodeId);
+                    nodes.put(handshake.getNodeId(),
+                            new GraphLabNodeInfo(handshake.getNodeId(),
+                                    InetAddress.getByName(handshake.getAddress()),
+                                    handshake.getPort()));
+                    channelIdToNodeId.put(e.getChannel().getId(), handshake.getNodeId());
 
                     System.out.println("Nodes now: " + nodes);
                     break;
@@ -81,12 +87,6 @@ public class MasterServer extends SimpleChannelUpstreamHandler {
         }
     }
 
-    private String readString(ChannelBuffer buf) {
-        int numBytes = buf.readInt();
-        byte[] bytes = new byte[numBytes];
-        buf.readBytes(bytes);
-        return new String(bytes);
-    }
 
 
     public static void main(String[] args) {
