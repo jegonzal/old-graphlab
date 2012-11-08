@@ -10,7 +10,7 @@ object Pagerank {
     val numprocs = 4
 
     // (source, target)
-    val edges = sc.textFile("/Users/haijieg/tmp/google.tsv").sample(false, 0.1, 1).map {
+    val edges = sc.textFile("/Users/haijieg/tmp/google.tsv").sample(false, 1, 1).map {
     	line => {val sp = line.split("\t"); sp(0).trim.toInt ->sp(1).trim.toInt} 
     }.partitionBy(new HashPartitioner(numprocs)).persist(StorageLevel.DISK_ONLY)
 
