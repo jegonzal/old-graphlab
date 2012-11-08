@@ -1,5 +1,5 @@
 package graphlab.graph
 
-class Edge[T] (id:Int,source:Int,target:Int,data:T) {
+case class Edge[EdgeDataType] (id:Int,source:Int,target:Int,data:EdgeDataType) {
   
 }

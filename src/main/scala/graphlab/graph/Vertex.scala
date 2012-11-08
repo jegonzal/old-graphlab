@@ -1,5 +1,5 @@
 package graphlab.graph
 
-class Vertex[T](id:Int,data:T) {
+case class Vertex[VertexDataType](id:Int,data:VertexDataType) {
 
 }
