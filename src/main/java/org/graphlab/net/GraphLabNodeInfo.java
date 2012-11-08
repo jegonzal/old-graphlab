@@ -46,6 +46,10 @@ public class GraphLabNodeInfo {
         this.port = port;
     }
 
+    public String toString() {
+        return "Node id=" + id + ", address=" + address + ", port=" + port;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
