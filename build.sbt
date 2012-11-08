@@ -45,6 +45,10 @@ libraryDependencies += "com.typesafe.akka" % "akka-slf4j" % "2.0.3"
 
 
 
+libraryDependencies += "io.netty" % "netty" % "3.5.9.Final"
+
+
+
 
 
 
