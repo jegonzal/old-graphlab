@@ -1,37 +1,59 @@
 package graphlab
 import spark.SparkContext
 import spark.SparkContext._
+import spark.HashPartitioner
+import spark.storage.StorageLevel
 
 object Pagerank {
   def main(args: Array[String]) {
     val sc = new SparkContext("local[4]", "pagerank")
+    val numprocs = 4
+
+    // (source, target)
     val edges = sc.textFile("/Users/haijieg/tmp/google.tsv").sample(false, 0.1, 1).map {
     	line => {val sp = line.split("\t"); sp(0).trim.toInt ->sp(1).trim.toInt} 
+    }.partitionBy(new HashPartitioner(numprocs)).persist(StorageLevel.DISK_ONLY)
+
+    // (target, source)
+    val edgesinv = edges.map(e => (e._2, e._1)).partitionBy(new HashPartitioner(numprocs)).persist(StorageLevel.DISK_ONLY)
+    
+    // (vid, vdata)
+    var vertices = edges.flatMap(e => List((e._1, 1.0), (e._2, 1.0))).distinct(numprocs)        
+    
+    val outedges = edges.mapValues(_ => 1).reduceByKey(_ + _)
+    val inedges = edgesinv.mapValues(_ => 1).reduceByKey(_ + _)
+    
+    // (vid, (inedges, outedges))
+    val vcontext = vertices.leftOuterJoin(inedges).leftOuterJoin(outedges).mapValues {
+      case ((value, inedges), outedges) => (inedges.getOrElse(0), outedges.getOrElse(0)) 
     }.cache()
     
-    val maxiter = 10
-    
-    var vertices = edges.flatMap(e => List((e._1, 1.0), (e._2, 1.0))).distinct(16)
-    val outedges = edges.map(e => (e._1, 1)).reduceByKey(_ + _).cache()
-   
+    val maxiter = 20
     for (i <- 1 to maxiter) {
       // Begin iteration    
-      System.out.println("Begin iteration %d", i);
+      System.out.println("Begin iteration:" + i);
 
-      System.out.println("Join vdata with outdeg")
-      var pr_deg = vertices.join(outedges)
-
-      // gather for source    
+      var vinfo = vertices.join(vcontext)
+      
+     // gather out edges
+      /*
       System.out.println("Gather on source")
-      var saccu = edges.map(e => (e._2, e._1)).join(pr_deg).map { case (target, (src, (targetval, targetdeg))) => (target, targetval / targetdeg) }
+      var saccu = edgesinv.join(vinfo).map { 
+        case (target, (src, (targetval, (indeg, outdeg)))) => ???)
+      }	
+      */				
 
-      // gather for target
-      System.out.println("Gather on target")
-      var taccu = edges.join(pr_deg).map { case (src, (target, (srcval, srcdeg))) => (target, srcval / srcdeg) }
+      // gather in edges    
+      System.out.println("Gather in edges")
+      var taccu = edges.join(vinfo).map {
+        case (src, (target, (srcval, (indeg, outdeg)))) => (target, (srcval / outdeg))
+      }.reduceByKey(_ + _)
 
       // apply
       System.out.println("Apply")
-      vertices = saccu.join(taccu).map { case (vid, (val1, val2)) => (vid, 0.15 + 0.85 * (val1 + val2)) }
+      vertices = taccu.mapValues { val1 => (0.15 + 0.85 * val1) }
+      
+      vertices.take(10).foreach(println)
     }
   }
 }
