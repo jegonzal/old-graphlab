@@ -5,16 +5,15 @@ import spark.SparkContext._
 object Pagerank {
   def main(args: Array[String]) {
     val sc = new SparkContext("local[4]", "pagerank")
-    val edges = sc.textFile("/Users/haijieg/tmp/google.tsv").map {
-    	line => {val sp = line.split("\t"); sp(0).toInt ->sp(1).toInt} 
+    val edges = sc.textFile("/Users/haijieg/tmp/google.tsv").sample(false, 0.1, 1).map {
+    	line => {val sp = line.split("\t"); sp(0).trim.toInt ->sp(1).trim.toInt} 
     }.cache()
     
-    val maxiter = 1
+    val maxiter = 10
     
-    var vertices = edges.flatMap(e => List((e._1, 1.0), (e._2, 1.0))).distinct(16).cache()
+    var vertices = edges.flatMap(e => List((e._1, 1.0), (e._2, 1.0))).distinct(16)
     val outedges = edges.map(e => (e._1, 1)).reduceByKey(_ + _).cache()
-    val inedges = edges.map(e => (e._2, 1)).reduceByKey(_ + _).cache()
-
+   
     for (i <- 1 to maxiter) {
       // Begin iteration    
       System.out.println("Begin iteration %d", i);
