@@ -24,6 +24,7 @@ public class DataExchange<VertexType, GatherType> {
     public void registerDecoders() {
         MessageIds.registerDecoder(MessageIds.VERTEXVALUES, getDecoder(MessageIds.VERTEXVALUES, vertexValueConverter));
         MessageIds.registerDecoder(MessageIds.GATHERVALUES, getDecoder(MessageIds.GATHERVALUES, gatherValueConverter));
+        MessageIds.registerDecoder(MessageIds.TOPRESULTS, getDecoder(MessageIds.TOPRESULTS, gatherValueConverter));
 
     }
 
@@ -37,9 +38,6 @@ public class DataExchange<VertexType, GatherType> {
 
                 int n = buffer.readInt();
                 int sizeOf = converter.sizeOf();
-
-                System.out.println("Decoding array:" + n);
-                System.out.println("Decode sizeof: " + sizeOf);
 
                 if (buffer.readableBytes() < n * (4 + sizeOf)) {
                     return null;
@@ -69,6 +67,10 @@ public class DataExchange<VertexType, GatherType> {
         return getMessageForValueArray(MessageIds.GATHERVALUES, vertexIds, values, gatherValueConverter);
     }
 
+    public GraphLabMessage getMessageForTopQueryResult(final int[] vertexIds,  final VertexType[] values) {
+        return getMessageForValueArray(MessageIds.TOPRESULTS, vertexIds, values, vertexValueConverter);
+    }
+
     private <T> GraphLabMessage getMessageForValueArray(final short msgId, final int[] vertexIds,  final T[] values,
                                                         final BytesToValueConverter<T> valueConverter) {
         if (vertexIds.length != values.length)
@@ -82,7 +84,6 @@ public class DataExchange<VertexType, GatherType> {
                 int sizeOf = valueConverter.sizeOf();
                 byte[] data = new byte[vertexIds.length * (4 + sizeOf)];
 
-                System.out.println("Sizeof: " + sizeOf + ", data length:" + data.length);
                 IntConverter intConverter = new IntConverter();
                 byte[] vidData = new byte[4];
                 byte[] valData = new byte[sizeOf];

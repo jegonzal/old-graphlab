@@ -16,6 +16,8 @@ public class MessageIds {
     public static final short GATHERVALUES = 4;
     public static final short NODEINFO = 5;
     public static final short FINISHED_PHASE = 6;
+    public static final short TOPQUERY = 7;
+    public static final short TOPRESULTS = 8;
 
 
 

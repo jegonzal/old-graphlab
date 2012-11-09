@@ -35,7 +35,7 @@ class GraphChiShardNode(id: Int, masterHost: String, graphName: String, nodes: I
   myShard.setConverter(edgeConverter)
   myShard.setOnlyAdjacency(true)
 
-  val vertexArray = ArrayBuffer.fill(graphchi.numVertices())(0.0f)
+  val vertexArray = Array.fill(graphchi.numVertices())(0.0f.asInstanceOf[VertexType])
 
   /* Start comm */
   val netSlave = new SlaveImplementation(this, id,  masterHost,
@@ -48,15 +48,21 @@ class GraphChiShardNode(id: Int, masterHost: String, graphName: String, nodes: I
 
 
   var curVertices : Array[ChiVertex[_,_]] = null
-  var curGathers : ArrayBuffer[GatherType] = null
+  var curGathers : Array[GatherType] = null
   val degreeData = new DegreeData(graphName)
 
-  val shuffleCounter = new AtomicInteger(0)
+  val shuffleCounter = new AtomicInteger(1)
   val otherNodes = (0 until nodes).filter(i => i != id)
 
   var curPhase : ExecutionPhase = null
   var curFrom = 0
   var curTo = 0
+
+  def vertexIdsForNodeInInterval(nodeId: Int, fromVertex: Int, toVertex:Int) = {
+      val start = scala.math.max(fromVertex, graphchi.getIntervals.get(nodeId).getFirstVertex)
+      val end = scala.math.min(toVertex, graphchi.getIntervals.get(nodeId).getLastVertex)
+      (start to end)
+  }
 
   def remoteStartPhase(phase: ExecutionPhase, fromVertex: Int, toVertex: Int) {
     curPhase = phase
@@ -64,9 +70,8 @@ class GraphChiShardNode(id: Int, masterHost: String, graphName: String, nodes: I
     curTo = toVertex
     phase.getPhaseNum match {
       case ExecutionPhase.GATHER =>
-        shuffleCounter.set(1)
         degreeData.load(fromVertex, toVertex)
-        curGathers = ArrayBuffer.fill(toVertex - fromVertex + 1)(0.0f)
+        curGathers = Array.fill(toVertex - fromVertex + 1)(0.0f)
         curVertices = new Array[ChiVertex[_,_]](toVertex - fromVertex + 1)
         var i : Int = 0
         while( i < curVertices.length) {     // Unscalaish, but faster
@@ -78,29 +83,42 @@ class GraphChiShardNode(id: Int, masterHost: String, graphName: String, nodes: I
         myShard.loadVertices(fromVertex, toVertex, curVertices, false)
 
         // shuffle gathers
-        System.out.println("Going to shuffle")
-        val vertexIds = (fromVertex until toVertex+1).toArray
         val gathersArray = curGathers.toArray
-        otherNodes.foreach(otherNode => netSlave.sendToNode(otherNode,   // TODO, send only vertex master
-          dataExchange.getMessageForGatherArray(vertexIds, gathersArray)
-        ))
+        otherNodes.foreach(otherNode => {
+          val verticesOwnedByNode = vertexIdsForNodeInInterval(otherNode, curFrom, curTo)
+          netSlave.sendToNode(otherNode,   // TODO, send only vertex master
+            dataExchange.getMessageForGatherArray(verticesOwnedByNode.toArray,
+              verticesOwnedByNode.map(vid => gathersArray(vid - curFrom)).toArray)
+          )
+          }
+        )
 
       case ExecutionPhase.APPLY =>
-        var i : Int = 0
-        while( i < curVertices.length) {     // Unscalaish, but faster
-          vertexArray(fromVertex + i) =
-             (curGathers(i) + 0.15f) / degreeData.getDegree(fromVertex + i).outDegree //  Vertex degree
-          i += 1
-        }
+        val verticesOwnedByNode = vertexIdsForNodeInInterval(this.id, curFrom, curTo)
+        verticesOwnedByNode.foreach( vid => {     // Unscalaish, but faster
+          if (vid < vertexArray.length) {
+            vertexArray(vid) =
+              (curGathers(vid - curFrom) + 0.15f) / degreeData.getDegree(vid).outDegree //  Vertex degree
+          }
+        })
+        // Send my vertex values
+        val myVertexValues = verticesOwnedByNode.map(i => vertexArray(i)).toArray[VertexType]
+        otherNodes.foreach(otherNode => netSlave.sendToNode(otherNode,   // TODO, send only vertex master
+          dataExchange.getMessageForVertexArray(verticesOwnedByNode.toArray, myVertexValues)
+        ))
+
 
       case ExecutionPhase.SCATTER =>
+        printf("Vertex %d = %f\n", 8737, vertexArray(8737))
+
+        netSlave.sendToMaster(new FinishedPhaseMessage(curPhase, curFrom, curTo))
     }
   }
 
   class GASVertex(vid : Int) extends ChiVertex[VertexType, EdgeType](id, new VertexDegree(0,0)) {
     override def addInEdge(chunkId: Int, offset: Int, vertexId: Int) {
       // Pagerank
-      curGathers(vid) += 0.85f * vertexArray(vertexId)
+      curGathers(vid - curFrom) += 0.85f * vertexArray(vertexId)
     }
 
     override def addOutEdge(chunkId: Int, offset: Int, vertexId: Int) {
@@ -109,16 +127,58 @@ class GraphChiShardNode(id: Int, masterHost: String, graphName: String, nodes: I
   }
 
   def remoteReceiveVertexData(fromNode: Int, vertexIds: Array[Int], vertexData: Array[AnyRef]) {
+    // Add gathers
+    var j = 0
+    // Unscalaish but faster
+    while(j < vertexIds.length) {
+      vertexArray(vertexIds(j)) = vertexData(j).asInstanceOf[VertexType]
+      j+=1
+    }
 
+    val cnt = shuffleCounter.incrementAndGet()
+    printf("Node %d, counter %d/%d, Received vertex data!\n", this.id, cnt, nodes)
+
+    if (cnt == nodes) {
+      // Next phase
+      printf("Node %d finishing phase\n", id)
+      shuffleCounter.set(1)
+
+      netSlave.sendToMaster(new FinishedPhaseMessage(curPhase, curFrom, curTo))
+    }
   }
 
   def remoteReceiveGathers(fromNode: Int, vertexIds: Array[Int], gatherData: Array[AnyRef]) {
-    println("Received gathers: " + vertexIds.length + ", " + gatherData.length)
-    if (shuffleCounter.incrementAndGet() == nodes) {
-        // Next phase
-        netSlave.sendToMaster(new FinishedPhaseMessage(curPhase, curFrom, curTo))
+    // Add gathers
+    var j = 0
+    // Unscalaish but faster
+    while(j < vertexIds.length) {
+      curGathers(vertexIds(j) - curFrom) += gatherData(j).asInstanceOf[GatherType]
+      j+=1
     }
 
+    val cnt = shuffleCounter.incrementAndGet()
+
+    if (cnt == nodes) {
+      // Next phase
+      printf("Node %d finishing phase\n", id)
+      shuffleCounter.set(1)
+
+      netSlave.sendToMaster(new FinishedPhaseMessage(curPhase, curFrom, curTo))
+    }
+
+  }
+
+  def remoteTopResultsRequested(topN: Int) {
+    val verticesOwnedByNode = vertexIdsForNodeInInterval(this.id, 0, Int.MaxValue)
+    val queryDegree = new DegreeData(graphName)
+    queryDegree.load(verticesOwnedByNode.head, verticesOwnedByNode.last)
+
+    val normalized = verticesOwnedByNode.map(i => (i, vertexArray(i) * queryDegree.getDegree(i).outDegree))
+    val top = normalized.sortWith(_._2 > _._2).take(topN)
+
+    val topIds = top.map(_._1).toArray
+    val topValues = top.map(_._2.asInstanceOf[VertexType]).toArray.asInstanceOf[Array[VertexType]]
+    netSlave.sendToMaster(dataExchange.getMessageForTopQueryResult(topIds, topValues))
   }
 }
 
