@@ -19,18 +19,17 @@ class WrappedClosure[S,T] extends java.io.Serializable {
   }
 }
 
-class ClosureSave[S, T](save_class_path:String, save_data_file:String) {
+class ClosureSave[S, T] {
 
   /**
-   * Saves a  closure to the provided save_class_path
-   * and save_data_path.
-   *
-   * @param fn The closure S=>T to save
-   * @return The class name to use when loading
+   * Returns of tuple of
+   * (A CtClass containing the wrangled
+   *  class name, the wrangled classname,
+   *  and an instance of the wrangled class with
+   *  the lambda attached)
    */
-  def SaveClosure(fn:(S=>T)) = {
+  private def CreateObjectWebCtclass(fn:(S=>T)) = {
     ClosureCleaner.clean(fn)
-
     var cw = new ClassWriter(ClassWriter.COMPUTE_MAXS)
     val pool = ClassPool.getDefault()
 
@@ -40,7 +39,6 @@ class ClosureSave[S, T](save_class_path:String, save_data_file:String) {
     var dstring = DATE_FORMAT.format(new java.util.Date())
     dstring = dstring + scala.util.Random.nextInt(10000).toString()
     ctc.setName(classname + dstring)
-    ctc.writeFile(save_class_path)
     ctc.freeze()
 
     var instance_class = ctc.toClass()
@@ -51,14 +49,59 @@ class ClosureSave[S, T](save_class_path:String, save_data_file:String) {
     instance_class
       .getMethods
       .find(_.getName ==  "fn_$eq")
-                  .get
-                  .invoke(instance, fn.asInstanceOf[AnyRef])
+      .get
+      .invoke(instance, fn.asInstanceOf[AnyRef])
+
+    (ctc, classname + dstring, instance)
+  }
+
+  /**
+   * Saves a  closure to the provided save_class_path
+   * and save_data_path.
+   *
+   * @param fn The closure S=>T to save
+   * @return The class name to use when loading
+   */
+  def SaveClosure(fn:(S=>T),
+                  save_class_path:String,
+                  save_data_file:String) = {
+
+    val (ctc, classname, instance) = CreateObjectWebCtclass(fn)
+
+    ctc.writeFile(save_class_path)
 
 
     var fos = new FileOutputStream(save_data_file)
     var out = new ObjectOutputStream(fos)
     out.writeObject(instance)
     fos.close()
-    classname + dstring
+    classname
+  }
+
+  // returns a byte array you can transport
+  def SaveClosureToMemory(fn:(S=>T)) = {
+
+    val (ctc, classname, instance) = CreateObjectWebCtclass(fn)
+
+    var bos = new ByteArrayOutputStream()
+    var out = new ObjectOutputStream(bos)
+
+    out.writeObject(classname)
+    out.flush()
+
+    // ok lets write the class to a new byte array
+    val bytecode_output = ctc.toBytecode()
+
+    // write the byte array
+    out.writeObject(bytecode_output)
+    out.writeObject(instance)
+    out.flush()
+
+    // the format is
+    // String ==> class name
+    // byte Array for the DataOutputStream containing the class file contents
+    // ??? ==> The instance object
+    bos.toByteArray()
+    // now write the jar file
   }
 }

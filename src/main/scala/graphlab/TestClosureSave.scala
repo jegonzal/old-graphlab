@@ -18,8 +18,13 @@ object TestClosureSave {
     val y = " pikachu"
     val fn = (x:String) => {x + y}
 
-    val csave = new ClosureSave[String,String]("classes","data")
-    println(csave.SaveClosure(fn))
+    val csave = new ClosureSave[String,String]
+
+    val bytearray = csave.SaveClosureToMemory(fn)
+
+    var fos = new FileOutputStream("a_closure_of_some_sort")
+    fos.write(bytearray)
+
     // ok now to try to reload it
   }
 }

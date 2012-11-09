@@ -16,14 +16,18 @@ import java.io._
 object TestClosureLoad {
 
   def main(args: Array[String]) {
-    val cl = new ClosureLoad()
-    cl.AddToClassPath("classes/")
-    val classname = readLine()
 
-    val closure = cl.LoadClosure(classname,"data")
+
+    var fos = new FileInputStream("a_closure_of_some_sort")
+    val filelength = new File("a_closure_of_some_sort").length()
+    var bytes = new Array[Byte](filelength.toInt)
+
+    val cl = new ClosureLoad()
+    fos.read(bytes)
+    val closure = cl.LoadClosure(bytes)
     var argument:String = "hello"
     val ret = closure.apply(new String(argument))
     println(ret)
-    //println(wrappedclosure.run("world"))
+
   }
 }
