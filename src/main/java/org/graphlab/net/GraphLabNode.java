@@ -1,7 +1,6 @@
 package org.graphlab.net;
 
 import org.graphlab.ExecutionPhase;
-import sun.rmi.rmic.iiop.ValueType;
 
 /**
  */
