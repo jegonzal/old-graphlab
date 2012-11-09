@@ -17,6 +17,7 @@ class Master[VertexDataType,EdgeDataType] {
 
   var shards:Array[S] = null
   var verts:Array[V] = null
+  var all_edges:Array[E] = null
   val NUM_SHARDS = 256
 
   private def hash(n:Int):Int = n % NUM_SHARDS
@@ -36,7 +37,7 @@ class Master[VertexDataType,EdgeDataType] {
 	num_verts = max(num_verts,ss)
 	num_verts = max(num_verts,dd)
 	num_edges = num_edges + 1
-	(num_edges,ss,dd,parse_input(data))
+	(num_edges,ss,dd,parse_input(data.trim))
       }
       case List(s,d) => {
 	val ss = s.trim.toInt
@@ -52,12 +53,10 @@ class Master[VertexDataType,EdgeDataType] {
     //list of all tuples to construct edges
     val edge_protoplasm = split_input.map(make_edge_tuple)
 
-    num_verts = num_verts + 1 //yay off by one
-
     def make_vertex(id:Int):V = new graphlab.graph.Vertex(id,init_vertex(id))
     
     //all shards will have reference to this
-    verts = (0 until num_verts).map(make_vertex).toArray
+    verts = (0 until (num_verts + 1)).map(make_vertex).toArray
 
     def make_edge(x:(Int,Int,Int,EdgeDataType)):E = {
       verts(x._2).inc_out
@@ -66,7 +65,7 @@ class Master[VertexDataType,EdgeDataType] {
     }
 
     //list of all edges
-    val all_edges = edge_protoplasm.map(make_edge)
+    all_edges = edge_protoplasm.map(make_edge)
 
     def make_shard(id:Int):S = new graphlab.engine.Shard(id,verts)
 
@@ -87,6 +86,20 @@ class Master[VertexDataType,EdgeDataType] {
 
   }
 
+  def map_reduce_edges[GatherType](
+    mapFun:(E)=>GatherType,
+    sum:(GatherType,GatherType)=>GatherType) = {
+    val g = shards.map(_.map_reduce_edges(mapFun,sum)).flatMap(_.apply())
+    g.tail.foldLeft(g.head)(sum)
+  }
+
+  def map_reduce_verts[GatherType](
+    mapFun:(V)=>GatherType,
+    sum:(GatherType,GatherType)=>GatherType) = {
+    val g = shards.map(_.map_reduce_verts(mapFun,sum)).flatMap(_.apply())
+    g.tail.foldLeft(g.head)(sum)
+  }
+  
   def run_gas[GatherType:Manifest](
     gather:(V,E)=>(EdgeDataType,GatherType),
     sum:(GatherType,GatherType)=>GatherType,

@@ -29,6 +29,24 @@ class Shard[VertexDataType,EdgeDataType](id:Int,verts:Array[Vertex[VertexDataTyp
   def register_lock(l:AnyRef) = { lock = l }
   def register_signal(s:Array[Boolean]) = { signal = s }
 
+  def map_reduce_edges[G](mapFun:(E)=>G,accum:(G,G)=>G):Future[List[G]] = {
+    future {
+      edges.map(mapFun) match {
+	case List() => List()
+	case g => List(g.tail.foldLeft(g.head)(accum))
+      }
+    }
+  }
+
+  def map_reduce_verts[G](mapFun:(V)=>G,accum:(G,G)=>G):Future[List[G]] = {
+    future {
+      my_verts.map(mapFun) match {
+	case List() => List() 
+	case g => List(g.tail.foldLeft(g.head)(accum))
+      }
+    }
+  }
+
   def run_gather[G](gather:(V,E)=>(ED,G),direction:Dir,accumulate:(((V,G),(E,ED)))=>Unit):Future[Unit] = {
     def g(e:E) = {
       var l:List[((V,G),(E,ED))] = List()

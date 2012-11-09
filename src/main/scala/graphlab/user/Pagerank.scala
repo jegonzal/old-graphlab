@@ -34,5 +34,9 @@ object Pagerank {
 
     m.dump_graph()
 
+    println(m.map_reduce_verts[Double](
+      (v)=>v.data._1,
+      _+_))
+
   }
 }
