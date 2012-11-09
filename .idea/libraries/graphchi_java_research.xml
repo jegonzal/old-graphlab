@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="graphchi-java-research">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/lib/graphchi-java-research.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

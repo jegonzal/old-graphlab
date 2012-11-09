@@ -12,6 +12,7 @@ import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.channel.*;
 import org.jboss.netty.channel.socket.nio.NioClientSocketChannelFactory;
 import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
+import org.jboss.netty.handler.codec.frame.FrameDecoder;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -36,8 +37,8 @@ public class SlaveImplementation {
     private int port;
     private int id;
 
-    public SlaveImplementation(int id, String masterHost, String host, int port) {
-        // this.graphlabNode = graphlabNode;
+    public SlaveImplementation(GraphLabNode graphlabNode, int id, String masterHost, String host, int port) {
+        this.graphlabNode = graphlabNode;
         this.id = id;
         this.masterHost = masterHost;
         this.host = host;
@@ -61,7 +62,9 @@ public class SlaveImplementation {
             @Override
             public ChannelPipeline getPipeline() throws Exception {
                 ChannelPipeline pipeline = pipeline();
+                pipeline.addLast("decoder", new GenericDecoder());
                 pipeline.addLast("handler", new SlaveServerHandler());
+
                 return pipeline;
             }
         });
@@ -79,6 +82,8 @@ public class SlaveImplementation {
             public ChannelPipeline getPipeline() {
                 ChannelPipeline pipeline = pipeline();
                 pipeline.addLast("encoder", GraphLabMessage.encoder());
+                pipeline.addLast("decoder", new GenericDecoder());
+
                 pipeline.addLast("handler", new SlaveClientHandler());
                 return pipeline;
             }
@@ -102,10 +107,18 @@ public class SlaveImplementation {
     class SlaveServerHandler extends SimpleChannelUpstreamHandler {
 
         public void messageReceived(ChannelHandlerContext ctx, MessageEvent e)  throws Exception {
-            ChannelBuffer buf = (ChannelBuffer) e.getMessage();
-            while(buf.readable()) {
-                short message = buf.readShort();
-                System.out.println("Node-2-Node, received: " + message);
+            GraphLabMessage message = (GraphLabMessage) e.getMessage();
+
+            System.out.println("Slave server handler recv: " + message);
+            switch(message.getMessageId()) {
+                case MessageIds.VERTEXVALUES:
+                    IndexedValueArray iv = (IndexedValueArray) message;
+                    graphlabNode.remoteReceiveVertexData(-1, iv.getIndices(), iv.getValues());
+                    break;
+                case MessageIds.GATHERVALUES:
+                    IndexedValueArray gv = (IndexedValueArray) message;
+                    graphlabNode.remoteReceiveGathers(-1, gv.getIndices(), gv.getValues());
+                    break;
             }
         }
     }
@@ -124,44 +137,53 @@ public class SlaveImplementation {
 
     public void sendToNode(int nodeId, GraphLabMessage message) {
         nodeToNodeChannels.get(nodeId).write(message);
+        System.out.println(id + " ==> " + nodeId + ": " + message + "; " + nodeToNodeChannels.get(nodeId));
     }
 
     public void sendToMaster(GraphLabMessage message) {
 
     }
 
+    private class GenericDecoder extends FrameDecoder {
+        @Override
+        protected Object decode(ChannelHandlerContext ctx, Channel channel, ChannelBuffer buf) throws Exception {
+            buf.markReaderIndex();
+            short messageId = buf.readShort();
+            Object message = MessageIds.getDecoder(messageId).decode(ctx, channel, buf);
+            if (message == null) {
+                buf.resetReaderIndex();
+            }
+            return message;
+        }
+    }
+
     class SlaveClientHandler extends SimpleChannelHandler {
 
         @Override
         public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) {
-            ChannelBuffer buf = (ChannelBuffer) e.getMessage();
-            while(buf.readable()) {
-                short message = buf.readShort();
-                System.out.println("Slave client handler recv: " + message);
-                switch(message) {
-                    case MessageIds.NODEINFO:
-                        NodeInfoMessage nodeInfoMessage = (NodeInfoMessage)
-                                MessageIds.getDecoder(message).decode(buf);
-                        GraphLabNodeInfo nodeInfo = nodeInfoMessage.getNodeInfo();
-                        otherNodes.put(nodeInfo.getId(), nodeInfo);
-                        System.out.println("Other nodes: " +  nodeInfo);
-                        connectToSlave(nodeInfo);
-                        break;
-                    case MessageIds.EXECUTEPHASE:
-                        ExecutePhaseMessage execPhaseMsg = (ExecutePhaseMessage) MessageIds.getDecoder(message).decode(buf);
-                        System.out.println("Move to phase: " + execPhaseMsg.getPhase());
-                        System.out.println("From vertex: " + execPhaseMsg.getFromVertex() + " -- " + execPhaseMsg.getToVertex());
-                        try {
-                            Thread.sleep(500l);
-                        } catch (InterruptedException e1) { }
+            GraphLabMessage message = (GraphLabMessage) e.getMessage();
 
-                        masterChannel.write(new FinishedPhaseMessage(execPhaseMsg.getPhase(),
-                                execPhaseMsg.getFromVertex(), execPhaseMsg.getToVertex()));
-                        break;
-                }
+            System.out.println("Slave client handler recv: " + message);
+            switch(message.getMessageId()) {
+                case MessageIds.NODEINFO:
+                    NodeInfoMessage nodeInfoMessage = (NodeInfoMessage) message;
+                    GraphLabNodeInfo nodeInfo = nodeInfoMessage.getNodeInfo();
+                    otherNodes.put(nodeInfo.getId(), nodeInfo);
+                    System.out.println("Other nodes: " +  nodeInfo);
+                    connectToSlave(nodeInfo);
+                    break;
+                case MessageIds.EXECUTEPHASE:
+                    ExecutePhaseMessage execPhaseMsg = (ExecutePhaseMessage) message;
+                    System.out.println("Move to phase: " + execPhaseMsg.getPhase());
+                    System.out.println("From vertex: " + execPhaseMsg.getFromVertex() + " -- " + execPhaseMsg.getToVertex());
+                    graphlabNode.remoteStartPhase(execPhaseMsg.getPhase(), execPhaseMsg.getFromVertex(), execPhaseMsg.getToVertex());
+                    break;
 
             }
+
         }
+
+
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) {
@@ -187,15 +209,4 @@ public class SlaveImplementation {
     }
 
 
-    public static void main(String[] args) {
-        String host = args[0];
-        int port = Integer.parseInt(args[1]);
-        int nodeId = Integer.parseInt(args[2]);
-
-        for(int i=0; i<4; i++) {
-            SlaveImplementation slave = new SlaveImplementation(nodeId + i, host, host, port + i);
-            slave.start();
-        }
-        System.out.println("DONE");
-    }
 }
