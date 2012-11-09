@@ -23,7 +23,7 @@ object Pagerank {
     val partitioner = new MyPartitioner(numprocs)
 
     // (source, target, pid)
-    val edges = sc.textFile("/Users/haijieg/tmp/google.tsv").sample(false, 0.1, 1).map {
+    val edges = sc.textFile("/Users/haijieg/tmp/google.tsv").sample(false, 1, 1).map {
     	line => {
     	  val sp = line.split("\t");
     	  val src = sp(0).trim.toInt
@@ -31,7 +31,7 @@ object Pagerank {
     	  val pid = Math.abs((src, dst).hashCode() % numprocs)
     	  ((pid, src), dst)
     	} 
-    }.partitionBy(partitioner).persist(StorageLevel.DISK_ONLY)
+    }.partitionBy(partitioner).persist(StorageLevel.MEMORY_ONLY)
  
     // ((pid, vid), vdata)
     var vertices = edges.flatMap {
@@ -49,18 +49,10 @@ object Pagerank {
     for (i <- 1 to maxiter) {
       // Begin iteration    
       System.out.println("Begin iteration:" + i);
- 
-     // gather out edges
-      /*
-      System.out.println("Gather out edges")
-      var saccu = edges.join(vertices).map {
-        case ((pid, src), (target, srcval)) => ((pid, target), (srcval / 2))
-      }.reduceByKey(_ + _)
-      */
 	      	
       // gather in edges    
       System.out.println("Gather in edges")      
-      var ingather = edges.join(vertices)
+      val ingather = edges.join(vertices)
       					.map { case ((pid, src), (target, srcval)) => ((pid, target), (src,srcval))}
       					.groupByKey(partitioner) // ((pid, target), seq[src, srcval])
       					.join(vertices) // ((pid, target), (seq[src, srcval], targetval))
@@ -71,16 +63,18 @@ object Pagerank {
       					  ((pid, target), accu)
       					  }   					
       					}
-
+      
+      System.out.println("Gather sum and Apply")          
       val vsync = ingather.map{case ((pid, vid), acc) => (vid, acc)}
       					  .reduceByKey(_ + _) // (vid, vdata)
       					  // apply      
       					  .mapValues(apply) // (vid, vdata)
       					  
-      // Synchronize globally					  
+      // Synchronize globally		
+      System.out.println("Apply sync")          
       vertices =  vlocale.join(vsync)	// (vid, (pid, acc))
       					 .map {case (vid, (pid, acc)) => ((pid, vid), acc)} // ((pid, vid), acc)
-      					 .partitionBy(partitioner)
+      					 .partitionBy(partitioner).cache()
       vertices.take(10).foreach(println)
     }
   }
