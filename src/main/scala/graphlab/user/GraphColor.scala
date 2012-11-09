@@ -2,17 +2,17 @@ package graphlab.user
 
 import graphlab.user._
 import graphlab.engine._
-import scala.collection.mutable.Set
+import scala.collection.immutable.Set
 
 object GraphColor {
 
   def main(args:Array[String]) = {
     
-    val m:Master[(Int,Int),Int,Set[Int]] = new Master
+    val m:Master[(Int,Int),Int] = new Master
 
     m.build_graph(args(0),(s)=>0,(id)=>(id,id))
     
-    m.run_gas((v,e) => (e.data,
+    m.run_gas[Set[Int]]((v,e) => (e.data,
         if(v.id > e.get_other_vertex(v).id) Set() else Set(e.get_other_vertex(v).data._1)
         ), //gather
       _|_, //sum

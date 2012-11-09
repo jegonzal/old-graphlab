@@ -9,11 +9,11 @@ import graphlab.graph._
 import graphlab.user._
 import graphlab.engine._
 
-class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
+class Master[VertexDataType,EdgeDataType] {
   
   type E = Edge[EdgeDataType,VertexDataType]
   type V = Vertex[VertexDataType]
-  type S = Shard[VertexDataType,EdgeDataType,GatherType]
+  type S = Shard[VertexDataType,EdgeDataType]
 
   var shards:Array[S] = null
   var verts:Array[V] = null
@@ -87,7 +87,7 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
 
   }
 
-  def run_gas(
+  def run_gas[GatherType:Manifest](
     gather:(V,E)=>(EdgeDataType,GatherType),
     sum:(GatherType,GatherType)=>GatherType,
     apply:(V,GatherType)=>VertexDataType,
@@ -131,7 +131,7 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
       }
 
       //kick off gather for all shards
-      val gather_futures = shards.map(_.run_gather(gather,gatherdir,accumulate))
+      val gather_futures = shards.map(_.run_gather[GatherType](gather,gatherdir,accumulate))
 
       //wait for all gathers to finish, and run accumulation
       gather_futures.map(_.apply())
@@ -144,7 +144,7 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
       }
 
       //kick off apply for all shards
-      val apply_futures = shards.map(_.run_apply(apply,acc,commit))
+      val apply_futures = shards.map(_.run_apply[GatherType](apply,acc,commit))
       
       //wait for all apply to finish
       apply_futures.map(_.apply())
@@ -163,7 +163,7 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
       }
 
       //kick off scatter for all shards
-      val scatter_futures = shards.map(_.run_scatter(scatter,scatterdir,publish))
+      val scatter_futures = shards.map(_.run_scatter[GatherType](scatter,scatterdir,publish))
 
       //wait for scatter to finish
       scatter_futures.map(_.apply())

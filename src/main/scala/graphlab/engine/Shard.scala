@@ -12,14 +12,13 @@ case object Out extends Dir
 case object All extends Dir
 case object NoEdges extends Dir
 
-class Shard[VertexDataType,EdgeDataType,GatherType](id:Int,verts:Array[Vertex[VertexDataType]]) {
+class Shard[VertexDataType,EdgeDataType](id:Int,verts:Array[Vertex[VertexDataType]]) {
 
   type E = Edge[EdgeDataType,VertexDataType]
   type V = Vertex[VertexDataType]
 
   type ED = EdgeDataType
   type VD = VertexDataType
-  type G = GatherType
 
   var edges:List[E] = List()
 
@@ -30,7 +29,7 @@ class Shard[VertexDataType,EdgeDataType,GatherType](id:Int,verts:Array[Vertex[Ve
   def register_lock(l:AnyRef) = { lock = l }
   def register_signal(s:Array[Boolean]) = { signal = s }
 
-  def run_gather(gather:(V,E)=>(ED,G),direction:Dir,accumulate:(((V,G),(E,ED)))=>Unit):Future[Unit] = {
+  def run_gather[G](gather:(V,E)=>(ED,G),direction:Dir,accumulate:(((V,G),(E,ED)))=>Unit):Future[Unit] = {
     def g(e:E) = {
       var l:List[((V,G),(E,ED))] = List()
       if ((direction == In || direction == All) && signal(e.target.id)) {
@@ -51,7 +50,7 @@ class Shard[VertexDataType,EdgeDataType,GatherType](id:Int,verts:Array[Vertex[Ve
     }
   }
 
-  def run_apply(apply:(V,G)=>VD,acc:Array[Either[G,G]],commit:((V,VD))=>Unit):Future[Unit] = {
+  def run_apply[G](apply:(V,G)=>VD,acc:Array[Either[G,G]],commit:((V,VD))=>Unit):Future[Unit] = {
     def a(v:V):List[(V,VD)] = {
       if (signal(v.id)) {
 	acc(v.id) match {
@@ -70,7 +69,7 @@ class Shard[VertexDataType,EdgeDataType,GatherType](id:Int,verts:Array[Vertex[Ve
     }
   }
 
-  def run_scatter(scatter:(V,E)=>(ED,Boolean),direction:Dir,publish:(((E,ED),(V,Boolean)))=>Unit):Future[Unit] = {
+  def run_scatter[G](scatter:(V,E)=>(ED,Boolean),direction:Dir,publish:(((E,ED),(V,Boolean)))=>Unit):Future[Unit] = {
     def s(e:E) = {
       var l:List[((E,ED),(V,Boolean))] = List()
       if ((direction == In || direction == All) && signal(e.target.id)) {
