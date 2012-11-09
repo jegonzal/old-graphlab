@@ -86,7 +86,6 @@ public class MasterServer{
 
     public void sendClient(int nodeId, GraphLabMessage message) {
         Channel channel = nodesToChannels.get(nodeId);
-        System.out.println("Send to " + nodeId + " , message=" + message);
         if (channel != null) {
             channel.write(message);
         }  else {
@@ -98,9 +97,15 @@ public class MasterServer{
         public void handleUpstream(
                 ChannelHandlerContext ctx, ChannelEvent e) throws Exception {
             if (e instanceof ChannelStateEvent) {
-                System.out.println("Handle upstream: " + e.toString());
             }
             super.handleUpstream(ctx, e);
+        }
+
+
+        @Override
+        public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) throws Exception {
+            e.getCause().printStackTrace();
+            super.exceptionCaught(ctx, e);    //To change body of overridden methods use File | Settings | File Templates.
         }
 
         @Override
@@ -108,9 +113,11 @@ public class MasterServer{
             int channelId = e.getChannel().getId();
             if (channelIdToNodeId.containsKey(channelId)) {
                 int nodeId = channelIdToNodeId.get(channelId);
+                GraphLabNodeInfo nodeInfo = nodes.get(nodeId);
                 nodes.remove(nodeId);
                 nodesToChannels.remove(nodeId);
                 channelIdToNodeId.remove(channelId);
+                master.remoteUnregisterSlave(nodeInfo);
             }
             System.out.println("Disconnected by " + channelId + ": nodes now: " + nodes);
         }
@@ -119,7 +126,6 @@ public class MasterServer{
 
 
         public void messageReceived(ChannelHandlerContext ctx, MessageEvent e)  throws Exception {
-            System.out.println("Master message received: " + e.getMessage());
             GraphLabMessage message = (GraphLabMessage) e.getMessage();
 
                 switch(message.getMessageId()) {
@@ -165,8 +171,12 @@ public class MasterServer{
                     case MessageIds.FINISHED_PHASE:
                         FinishedPhaseMessage finishedPhaseMessage = (FinishedPhaseMessage) message;
                         int nodeId = channelIdToNodeId.get(e.getChannel().getId()); // Can we store it in the context?
-                        System.out.println("Finish: " + finishedPhaseMessage + " , master=" + master);
                         master.remoteFinishedPhase(nodeId, finishedPhaseMessage.getPhase());
+                        break;
+                    case MessageIds.TOPRESULTS:
+                        System.out.println("Receive top results...");
+                        IndexedValueArray iv = (IndexedValueArray) message;
+                        master.remoteReceiveTopResults(iv.getIndices(), iv.getValues());
                         break;
                 }
         }

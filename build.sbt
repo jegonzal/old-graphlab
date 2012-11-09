@@ -33,6 +33,7 @@ libraryDependencies  ++= Seq(
             "org.scalanlp" %% "breeze-viz" % "0.1"
 )
 
+libraryDependencies += "com.yammer.metrics" % "metrics-core" % "3.0.0-SNAPSHOT"
 
 
 libraryDependencies += "com.typesafe.akka" % "akka-actor" % "2.0.3"

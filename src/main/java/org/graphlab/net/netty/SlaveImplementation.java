@@ -2,10 +2,7 @@ package org.graphlab.net.netty;
 
 import org.graphlab.net.GraphLabNode;
 import org.graphlab.net.GraphLabNodeInfo;
-import org.graphlab.net.netty.messages.ExecutePhaseMessage;
-import org.graphlab.net.netty.messages.FinishedPhaseMessage;
-import org.graphlab.net.netty.messages.HandshakeMessage;
-import org.graphlab.net.netty.messages.NodeInfoMessage;
+import org.graphlab.net.netty.messages.*;
 import org.jboss.netty.bootstrap.ClientBootstrap;
 import org.jboss.netty.bootstrap.ServerBootstrap;
 import org.jboss.netty.buffer.ChannelBuffer;
@@ -102,6 +99,7 @@ public class SlaveImplementation {
     static {
         NodeInfoMessage.register();
         ExecutePhaseMessage.register();
+        TopResultsQuery.registerDecoder();
     }
 
     class SlaveServerHandler extends SimpleChannelUpstreamHandler {
@@ -119,6 +117,7 @@ public class SlaveImplementation {
                     IndexedValueArray gv = (IndexedValueArray) message;
                     graphlabNode.remoteReceiveGathers(-1, gv.getIndices(), gv.getValues());
                     break;
+
             }
         }
     }
@@ -137,11 +136,12 @@ public class SlaveImplementation {
 
     public void sendToNode(int nodeId, GraphLabMessage message) {
         nodeToNodeChannels.get(nodeId).write(message);
-        System.out.println(id + " ==> " + nodeId + ": " + message + "; " + nodeToNodeChannels.get(nodeId));
+        // System.out.println(id + " ==> " + nodeId + ": " + message + "; " + nodeToNodeChannels.get(nodeId));
     }
 
     public void sendToMaster(GraphLabMessage message) {
-
+        System.out.println("Send to master: " + message);
+        masterChannel.write(message);
     }
 
     private class GenericDecoder extends FrameDecoder {
@@ -162,8 +162,6 @@ public class SlaveImplementation {
         @Override
         public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) {
             GraphLabMessage message = (GraphLabMessage) e.getMessage();
-
-            System.out.println("Slave client handler recv: " + message);
             switch(message.getMessageId()) {
                 case MessageIds.NODEINFO:
                     NodeInfoMessage nodeInfoMessage = (NodeInfoMessage) message;
@@ -174,11 +172,13 @@ public class SlaveImplementation {
                     break;
                 case MessageIds.EXECUTEPHASE:
                     ExecutePhaseMessage execPhaseMsg = (ExecutePhaseMessage) message;
-                    System.out.println("Move to phase: " + execPhaseMsg.getPhase());
-                    System.out.println("From vertex: " + execPhaseMsg.getFromVertex() + " -- " + execPhaseMsg.getToVertex());
                     graphlabNode.remoteStartPhase(execPhaseMsg.getPhase(), execPhaseMsg.getFromVertex(), execPhaseMsg.getToVertex());
                     break;
 
+                case MessageIds.TOPQUERY:
+                    TopResultsQuery query = (TopResultsQuery) message;
+                    graphlabNode.remoteTopResultsRequested(query.getTopN());
+                    break;
             }
 
         }
@@ -201,7 +201,7 @@ public class SlaveImplementation {
         public void handleUpstream(
                 ChannelHandlerContext ctx, ChannelEvent e) throws Exception {
             if (e instanceof ChannelStateEvent) {
-                System.out.println("Handle up:" + e.toString());
+                //     System.out.println("Handle up:" + e.toString());
             }
             super.handleUpstream(ctx, e);
         }

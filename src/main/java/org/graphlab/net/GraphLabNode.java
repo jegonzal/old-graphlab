@@ -13,4 +13,6 @@ public interface GraphLabNode {
 
     void remoteStartPhase(ExecutionPhase phase, int fromVertex, int toVertex);
 
+    void remoteTopResultsRequested(int topN);
+
 }
