@@ -25,14 +25,19 @@ class Shard[VertexDataType,EdgeDataType,GatherType](id:Int,verts:Array[Vertex[Ve
 
   var my_verts:List[V] = List()
 
-  def run_gather(gather:(V,E)=>(ED,G),direction:Dir,acc:Array[Either[G,G]],lock:AnyRef,sum:(G,G)=>G):Future[Unit] = {
+  var lock:AnyRef = null
+  var signal:Array[Boolean] = null
+  def register_lock(l:AnyRef) = { lock = l }
+  def register_signal(s:Array[Boolean]) = { signal = s }
+
+  def run_gather(gather:(V,E)=>(ED,G),direction:Dir,accumulate:(((V,G),(E,ED)))=>Unit):Future[Unit] = {
     def g(e:E) = {
       var l:List[((V,G),(E,ED))] = List()
-      if (direction == In || direction == All) {
+      if ((direction == In || direction == All) && signal(e.target.id)) {
 	val (a,b) = gather(e.target, e)
 	l = ((e.target,b),(e,a))::l
       }
-      if (direction == Out || direction == All) {
+      if ((direction == Out || direction == All) && signal(e.source.id)) {
 	val (c,d) = gather(e.source, e)
 	l=((e.source,d),(e,c))::l
       }
@@ -40,46 +45,50 @@ class Shard[VertexDataType,EdgeDataType,GatherType](id:Int,verts:Array[Vertex[Ve
     }
     future { 
       val fut = edges.flatMap(g)
-      //what to do when done gathering
-      def accumulate(x:((V,GatherType),(E,EdgeDataType))):Unit = {
-	val (vert,a) = x._1
-	val (edge,data) = x._2
-	acc(vert.id) match {
-	  case Left(_) => acc(vert.id) = Right(a)
-	  case Right(n) => acc(vert.id) = Right(sum(n,a))
-	}
-	edge.data = data
-      }
       lock.synchronized {
 	fut.map(accumulate)
       }
     }
   }
 
-  def run_apply(apply:(V,G)=>VD,acc:Array[Either[G,G]]):Future[List[(V,VD)]] = {
-    def a(v:V) = {
-      acc(v.id) match {
-	case Left(n) => (v,apply(v,n))
-	case Right(n) => (v,apply(v,n))
+  def run_apply(apply:(V,G)=>VD,acc:Array[Either[G,G]],commit:((V,VD))=>Unit):Future[Unit] = {
+    def a(v:V):List[(V,VD)] = {
+      if (signal(v.id)) {
+	acc(v.id) match {
+	  case Left(n) => List((v,apply(v,n)))
+	  case Right(n) => List((v,apply(v,n)))
+	}
+      } else {
+	List()
       }
     }
-    future { my_verts.map(a) }
+    future { 
+      val v = my_verts.flatMap(a) 
+      lock.synchronized {
+	v.map(commit)
+      }
+    }
   }
 
-  def run_scatter(scatter:(V,E)=>(ED,Boolean),direction:Dir):Future[List[((E,ED),(V,Boolean))]] = {
+  def run_scatter(scatter:(V,E)=>(ED,Boolean),direction:Dir,publish:(((E,ED),(V,Boolean)))=>Unit):Future[Unit] = {
     def s(e:E) = {
       var l:List[((E,ED),(V,Boolean))] = List()
-      if (direction == In || direction == All) {
+      if ((direction == In || direction == All) && signal(e.target.id)) {
 	val (a,b) = scatter(e.target,e)
 	l=((e,a),(e.source,b))::l
       }
-      if (direction == Out || direction == All) {
+      if ((direction == Out || direction == All) && signal(e.source.id)) {
 	val (c,d) = scatter(e.source,e)
 	l=((e,c),(e.target,d))::l
       }
       l
     }
-    future { edges.flatMap(s) }
+    future { 
+      val e = edges.flatMap(s) 
+      lock.synchronized {
+	e.map(publish)
+      }
+    }
   }
 
   def push_edge(e:E) = edges ::= e
