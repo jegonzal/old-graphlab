@@ -35,7 +35,6 @@ class Graph[VD: Manifest, ED: Manifest](
     ClosureCleaner.clean(apply)
     ClosureCleaner.clean(scatter)
 
-    
     val numprocs = 16;
     val partitioner = new FirstPartitioner(numprocs);
 
@@ -56,14 +55,13 @@ class Graph[VD: Manifest, ED: Manifest](
 
     val vlocale = vreplicas.map { case ((pid, vid), vdata) => (vid, pid) }.cache()
 
-    for(i <- 1 to niter) {
+    for (i <- 1 to niter) {
       // Begin iteration    
       System.out.println("Begin iteration:" + i)
 
       // gather in edges    
       System.out.println("Gather in edges")
 
-      
       val half_join = part_edges.join(vreplicas).map {
         case ((pid, source), ((target, edata), vdata_source)) =>
           ((pid, target), (source, edata, vdata_source))
@@ -85,7 +83,7 @@ class Graph[VD: Manifest, ED: Manifest](
           }
         }
       }
-     
+
       val sum_ = sum
       val accum = accum1.reduceByKey(sum_)
 
@@ -136,13 +134,13 @@ object GraphTest {
     val sc = new SparkContext("local[4]", "pagerank")
     val graph = Graph.load_graph(sc, "/Users/jegonzal/Data/google.tsv", x => false)
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, 1.0F) }
-    val graph2 = new Graph(initial_ranks, graph.edges.sample(false, 0.00001, 1))
+    val graph2 = new Graph(initial_ranks, graph.edges.sample(false, 0.1, 1))
     val result = graph2.iterateGAS(
       (v1, edata, v2) => (edata, (v1.data + v2.data) / 2.0F),
       (a: Float, b: Float) => a + b,
       (v, a: Float) => v.data + a,
       (v1, edata, v2) => (edata, false),
-      2)
+      5)
     result.take(10).foreach(println);
   }
 }
