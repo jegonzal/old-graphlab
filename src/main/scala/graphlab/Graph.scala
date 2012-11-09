@@ -15,13 +15,13 @@ class FirstPartitioner(val numPartitions: Int = 16) extends spark.Partitioner {
 
 class Vertex[VD](val id: Int, val data: VD);
 
-class Graph[VD: ClassManifest, ED: ClassManifest](
+class Graph[VD: Manifest, ED: Manifest](
   val vertices: spark.RDD[(Int, VD)],
   val edges: spark.RDD[((Int, Int), ED)]) {
 
   def cache { edges.cache }
 
-  def iterateGAS[A: ClassManifest](
+  def iterateGAS[A: Manifest](
     gather: (Vertex[VD], ED, Vertex[VD]) => (ED, A),
     sum: (A, A) => A,
     apply: (Vertex[VD], A) => VD,
@@ -30,6 +30,12 @@ class Graph[VD: ClassManifest, ED: ClassManifest](
     gather_edges: String = "in",
     scatter_edges: String = "out") = {
 
+    ClosureCleaner.clean(gather)
+    ClosureCleaner.clean(sum)
+    ClosureCleaner.clean(apply)
+    ClosureCleaner.clean(scatter)
+
+    
     val numprocs = 16;
     val partitioner = new FirstPartitioner(numprocs);
 
@@ -57,6 +63,7 @@ class Graph[VD: ClassManifest, ED: ClassManifest](
       // gather in edges    
       System.out.println("Gather in edges")
 
+      
       val half_join = part_edges.join(vreplicas).map {
         case ((pid, source), ((target, edata), vdata_source)) =>
           ((pid, target), (source, edata, vdata_source))
@@ -64,12 +71,13 @@ class Graph[VD: ClassManifest, ED: ClassManifest](
 
       half_join.take(10).foreach(println)
 
+      val gather_ = gather;
       val accum1 = vreplicas.join(half_join).flatMap {
         case ((pid, target), (vdata_target, (source, edata, vdata_source))) => {
           val sourceVertex = new Vertex[VD](source, vdata_source)
           val targetVertex = new Vertex[VD](target, vdata_target)
-          val (_, trg_gather) = gather(sourceVertex, edata, targetVertex)
-          val (_, src_gather) = gather(targetVertex, edata, sourceVertex)
+          val (_, trg_gather) = gather_(sourceVertex, edata, targetVertex)
+          val (_, src_gather) = gather_(targetVertex, edata, sourceVertex)
           gather_edges match {
             case "in" => List((target, trg_gather))
             case "out" => List((source, src_gather))
@@ -129,6 +137,7 @@ object Graph {
 
 object GraphTest {
   def main(args: Array[String]) {
+    System.setProperty("sun.io.serialization.extendedDebugInfo", "true")
     val sc = new SparkContext("local[4]", "pagerank")
     val graph = Graph.load_graph(sc, "/Users/jegonzal/Data/google.tsv", x => false)
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, 1.0F) }
