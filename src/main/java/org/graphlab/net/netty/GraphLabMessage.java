@@ -16,6 +16,10 @@ public abstract class GraphLabMessage {
         this.messageId = messageId;
     }
 
+    public short getMessageId() {
+        return messageId;
+    }
+
     public abstract void encode(ChannelBuffer buf);
 
     public static OneToOneEncoder encoder() {
@@ -34,7 +38,12 @@ public abstract class GraphLabMessage {
     }
 
     public static String readString(ChannelBuffer buf) {
+        if (buf.readableBytes() < 4) return null;
+
         int numBytes = buf.readInt();
+
+        if (buf.readableBytes() < numBytes) return null;
+
         byte[] bytes = new byte[numBytes];
         buf.readBytes(bytes);
         return new String(bytes);

@@ -5,6 +5,8 @@ import org.graphlab.net.netty.GraphLabMessage;
 import org.graphlab.net.netty.GraphLabMessageDecoder;
 import org.graphlab.net.netty.MessageIds;
 import org.jboss.netty.buffer.ChannelBuffer;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelHandlerContext;
 
 import java.net.InetAddress;
 
@@ -18,9 +20,11 @@ public class NodeInfoMessage extends GraphLabMessage {
     public static void register() {
         MessageIds.registerDecoder(MessageIds.NODEINFO, new GraphLabMessageDecoder() {
             @Override
-            public GraphLabMessage decode(ChannelBuffer buf) {
+            public GraphLabMessage decode(ChannelHandlerContext ctx, Channel channel, ChannelBuffer buf) {
+                if (buf.readableBytes() < 12) return null;
                 int nodeId = buf.readInt();
                 String address = GraphLabMessage.readString(buf);
+                if (address == null) return null;
                 int port = buf.readInt();
                 try {
                     return new NodeInfoMessage(new GraphLabNodeInfo(nodeId, InetAddress.getByName(address), port));

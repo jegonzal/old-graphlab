@@ -5,6 +5,8 @@ import org.graphlab.net.netty.GraphLabMessage;
 import org.graphlab.net.netty.GraphLabMessageDecoder;
 import org.graphlab.net.netty.MessageIds;
 import org.jboss.netty.buffer.ChannelBuffer;
+import org.jboss.netty.channel.Channel;
+import org.jboss.netty.channel.ChannelHandlerContext;
 
 /**
  */
@@ -19,7 +21,9 @@ public class ExecutePhaseMessage extends GraphLabMessage {
     public static void register() {
         MessageIds.registerDecoder(MessageIds.EXECUTEPHASE, new GraphLabMessageDecoder() {
             @Override
-            public GraphLabMessage decode(ChannelBuffer buf) {
+            public GraphLabMessage decode(ChannelHandlerContext ctx, Channel channel, ChannelBuffer buf) {
+                if (buf.readableBytes() < 12) return null;
+
                 ExecutionPhase phase = new ExecutionPhase(buf.readInt());
                 int fromVertex = buf.readInt();
                 int toVertex = buf.readInt();

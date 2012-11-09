@@ -5,6 +5,7 @@ import net.netty.MasterServer
 import net.netty.messages.ExecutePhaseMessage
 import org.graphlab.net.netty._
 import java.util.concurrent.atomic.AtomicInteger
+import edu.cmu.graphchi.engine.GraphChiEngine
 
 /**
  * Super simple master
@@ -14,6 +15,7 @@ object MasterImpl extends Master {
   val server = new MasterServer(MasterImpl)
   var nodes : Set[Int] = null
   val countDown = new AtomicInteger()
+  var numVertices = 0
 
   def transformToPhase(phase: ExecutionPhase, fromVertex: Int, toVertex: Int) {
     nodes.foreach(nodeId => server.sendClient(nodeId, new ExecutePhaseMessage(phase, fromVertex, toVertex)))
@@ -27,8 +29,7 @@ object MasterImpl extends Master {
   }
 
   def runIteration(iteration: Int) {
-    val numVertices = 100000
-    val stepSize = 10000
+    val stepSize = 50000
 
 
     (0 until numVertices by stepSize).foreach(from => {
@@ -48,8 +49,9 @@ object MasterImpl extends Master {
     countDown.decrementAndGet()
   }
 
-  def start(numNodes: Int) {
+  def start(numNodes: Int, numV: Int) {
     server.start()
+    numVertices = numV
 
     printf("Waiting for %d nodes", numNodes)
     while(server.getNumOfRegisteredNodes < numNodes) Thread.sleep(100)
@@ -63,7 +65,13 @@ object MasterImpl extends Master {
 
 
   def main(args: Array[String]) {
-    start(args(0).toInt)
+    val graphName = args(0)
+    val shards = args(1).toInt
+
+    val engine =
+         new GraphChiEngine[java.lang.Float, java.lang.Float](graphName, shards)
+    val numVertices = engine.numVertices()
+    start(shards, numVertices)
   }
 
 
