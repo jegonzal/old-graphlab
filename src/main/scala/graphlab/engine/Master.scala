@@ -1,6 +1,7 @@
 package graphlab.engine
 
 import scala.io.Source
+import scala.io._
 import scala.collection.mutable.MutableList
 import scala.actors.Futures._
 import scala.math._
@@ -49,6 +50,8 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
     verts = (0 until num_verts).map(make_vertex).toArray
 
     def make_edge(x:(Int,Int,Int,EdgeDataType)):E = {
+      verts(x._2).inc_out
+      verts(x._3).inc_in
       new E(x._1,verts(x._2),verts(x._3),x._4)
     }
 
@@ -87,6 +90,8 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
     var acc:Array[GatherType] = ((0 until verts.length).map({_ => init_gather()})).toArray
 
     var signal:Array[Boolean] = (0 until verts.length).map(_ => true).toArray
+    
+    //count the iterations
     var iter = 0
 
     //run shards until convergence
@@ -113,6 +118,7 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
       gather_futures.map(_.apply().map(accumulate))
 
       /* APPLY PHASE */
+
       //kick off apply for all shards
       val apply_futures = shards.map(_.run_apply(apply,acc))
 
@@ -125,6 +131,7 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
       apply_futures.map(_.apply().map(commit))
 
       /* SCATTER PHASE */
+
       //kick off scatter for all shards
       val scatter_futures = shards.map(_.run_scatter(scatter,scatterdir))
 
@@ -142,10 +149,31 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
       //wait for scatter to finish
       scatter_futures.map(_.apply().map(publish))
 
+      //count the number of iterations
       iter += 1
 
     }    
 
+  }
+
+  def asString:List[String] = {
+    var s:List[String] = List()
+    s = "Vertices"::s
+    def get_vert(v:V) = {
+      s = (v.id + " : " + v.data)::s
+    }
+    verts.map(get_vert)
+    s = ""::s
+    s = "Edges"::s
+    def get_edge(e:E) = {
+      s = (e.source.id + "->" + e.target.id + " : " + e.data)::s
+    }
+    shards.map(_.edges.map(get_edge))
+    s.reverse
+  }
+
+  def dump_graph():Unit = {
+    asString.foreach(println)
   }
 
 }

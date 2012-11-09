@@ -16,26 +16,23 @@ object Pagerank {
 
     m.run_gas((v,e) => {
       //gather
-      val agg = e.data*e.source.data._1
-      //println("Gathering " + e.source.id + "->" + e.target.id + " for v: " + v.id + " agg: " + agg)
+      val agg = (1 - RESET_PROB)*e.source.data._1/e.source.num_out_edges
       (e.data,agg)
     },
       (x,y) => x+y, //sum
       (v,g) => {
 	//apply
-	//println("applying: " + v.id + " : " + g)
-        ((1-RESET_PROB)*g+(RESET_PROB),v.data._1)
+        (g + RESET_PROB,v.data._1)
       },
       (v,e) => {
 	//scatter
 	val err = math.abs(v.data._1-v.data._2)
-	//println("scattering: " + e.source.id + "->" + e.target.id + " for v: " + v.id + ", error: " + err)
 	(e.data,err > CONVERGENCE)
       },
       () => 0.0, //init gather type
       In,Out) //gather_edges, scatter_edges
 
-    
+    m.dump_graph()
 
   }
 }
