@@ -17,9 +17,14 @@ class Master[VertexDataType,EdgeDataType] {
 
   var shards:Array[S] = null
   var verts:Array[V] = null
-  var all_edges:Array[E] = null
+  var edges:Array[E] = null
+
+  //number of shards to split the graph into
   val NUM_SHARDS = 256
 
+  //how to split the graph into shards
+  //used for both edges and vertices
+  //needs to return a value in [0,NUM_SHARDS)
   private def hash(n:Int):Int = n % NUM_SHARDS
 
   def build_graph(fname:String,parse_input:(String)=>EdgeDataType,init_vertex:(Int)=>VertexDataType) = {
@@ -65,9 +70,9 @@ class Master[VertexDataType,EdgeDataType] {
     }
 
     //list of all edges
-    all_edges = edge_protoplasm.map(make_edge)
+    edges = edge_protoplasm.map(make_edge)
 
-    def make_shard(id:Int):S = new graphlab.engine.Shard(id,verts)
+    def make_shard(id:Int):S = new graphlab.engine.Shard(id)
 
     //create shards
     shards = (0 until NUM_SHARDS).map(make_shard).toArray
@@ -81,7 +86,7 @@ class Master[VertexDataType,EdgeDataType] {
     }
 
     //give shards appropriate edges and verts
-    all_edges.map(e_place)
+    edges.map(e_place)
     verts.map(v_place)
 
   }
@@ -99,6 +104,14 @@ class Master[VertexDataType,EdgeDataType] {
     val g = shards.map(_.map_reduce_verts(mapFun,sum)).flatMap(_.apply())
     g.tail.foldLeft(g.head)(sum)
   }
+
+  def transform_edges(mapFun:(E)=>EdgeDataType) = {
+    shards.foreach(_.transform_edges(mapFun))
+  }
+
+  def transform_verts(mapFun:(V)=>VertexDataType) = {
+    shards.foreach(_.transform_verts(mapFun))
+  }
   
   def run_gas[GatherType:Manifest](
     gather:(V,E)=>(EdgeDataType,GatherType),
@@ -110,7 +123,7 @@ class Master[VertexDataType,EdgeDataType] {
 
     println("starting GAS")
 
-    var acc:Array[Either[GatherType,GatherType]] = null
+    var acc:Array[Either[GatherType,GatherType]] = (0 until verts.length).map(_ => Left(default_gather)).toArray
 
     var signal:Array[Boolean] = (0 until verts.length).map(_ => true).toArray
     
@@ -127,10 +140,10 @@ class Master[VertexDataType,EdgeDataType] {
 
       println("starting gas iteration")
 
-      /* GATHER PHASE */
+      //reset accumulator to default value
+      (0 until verts.length).foreach((n) => acc(n) = Left(default_gather))
 
-      //reset accumulator to 0
-      acc = ((0 until verts.length).map(_ => Left(default_gather))).toArray
+      /* GATHER PHASE */
 
       //what to do when done gathering
       def accumulate(x:((V,GatherType),(E,EdgeDataType))):Unit = {
@@ -143,11 +156,8 @@ class Master[VertexDataType,EdgeDataType] {
 	edge.data = data
       }
 
-      //kick off gather for all shards
-      val gather_futures = shards.map(_.run_gather[GatherType](gather,gatherdir,accumulate))
-
-      //wait for all gathers to finish, and run accumulation
-      gather_futures.map(_.apply())
+      //actually run gather on all shards
+      shards.map(_.run_gather[GatherType](gather,gatherdir,accumulate)).map(_.apply())
 
       /* APPLY PHASE */
 
@@ -156,16 +166,13 @@ class Master[VertexDataType,EdgeDataType] {
 	x._1.data = x._2
       }
 
-      //kick off apply for all shards
-      val apply_futures = shards.map(_.run_apply[GatherType](apply,acc,commit))
+      //actually run apply on all shards
+      shards.map(_.run_apply[GatherType](apply,acc,commit)).map(_.apply())
       
-      //wait for all apply to finish
-      apply_futures.map(_.apply())
-
       /* SCATTER PHASE */
 
       //reset signal to all false
-      signal = (0 until verts.length).map(_ => false).toArray
+      (0 until verts.length).foreach((n) => signal(n) = false)
 
       //what to do when done scattering
       def publish(x:((E,EdgeDataType),(V,Boolean))):Unit = {
@@ -175,11 +182,8 @@ class Master[VertexDataType,EdgeDataType] {
 	edge.data = data
       }
 
-      //kick off scatter for all shards
-      val scatter_futures = shards.map(_.run_scatter[GatherType](scatter,scatterdir,publish))
-
-      //wait for scatter to finish
-      scatter_futures.map(_.apply())
+      //actually run scatter on all shards
+      shards.map(_.run_scatter[GatherType](scatter,scatterdir,publish)).map(_.apply())
 
       //count the number of iterations
       iter += 1
