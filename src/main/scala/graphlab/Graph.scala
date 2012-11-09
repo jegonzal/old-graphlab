@@ -22,6 +22,14 @@ class Graph[VD: Manifest, ED: Manifest](
   def cache () : Graph[VD, ED] = {
     new Graph (vertices.cache(), edges.cache())
   }
+  
+  def nvertices() : Int = {
+    vertices.count().toInt
+  }
+  
+  def nedges() : Int = {
+    edges.count().toInt
+  }
  
   def iterateGAS[A: Manifest](
     gather: (Vertex[VD], ED, Vertex[VD]) => (ED, A),
@@ -132,23 +140,26 @@ object Graph {
     val vertices = edges.flatMap {
       case ((source, target), _) => List((source, 1), (target, 1))
     }.reduceByKey(_ + _)
-    new Graph[Int, ED](vertices, edges)
+    
+    val g = new Graph[Int, ED](vertices, edges)
+    println("Loaded graph: #edges: " + g.nedges() + "  #vertices" + g.nvertices());
+    g
   }
-
 }
 
 object GraphTest {
   def main(args: Array[String]) {
     val sc = new SparkContext("local[4]", "pagerank")
-    val graph = Graph.load_graph(sc, "/Users/jegonzal/Data/google.tsv", x => false)
+    val graph = Graph.load_graph(sc, "/Users/haijieg/tmp/abc.tsv", x => false)
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, 1.0F) }
-    val graph2 = new Graph(initial_ranks, graph.edges.sample(false, 0.1, 1))
+    val graph2 = new Graph(initial_ranks, graph.edges.sample(false, 1, 1))
     val graph_ret = graph2.iterateGAS(
-      (v1, edata, v2) => (edata, (v1.data + v2.data) / 2.0F),
-      (a: Float, b: Float) => a + b,
-      (v, a: Float) => v.data + a,
-      (v1, edata, v2) => (edata, false),
+      (v1, edata, v2) => (edata, v1.data+v2.data), // gather
+      (a: Float, b: Float) => a + b,	// sum
+      (v, a: Float) => a,	// apply
+      (v1, edata, v2) => (edata, false), // scatter
       5).cache()
+    println("Computed graph: #edges: " + graph_ret.nedges() + "  #vertices" + graph_ret.nvertices())  
     graph_ret.vertices.take(10).foreach(println)
   }
 }
