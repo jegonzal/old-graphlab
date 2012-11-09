@@ -6,23 +6,67 @@ import scala.actors.Future
 import scala.actors.Futures._
 import scala.collection.immutable._
 
-class Shard[VertexDataType,EdgeDataType,GatherType](id:Int,gas:VertexProgram[VertexDataType,EdgeDataType,GatherType],verts:List[Vertex[VertexDataType]]) {
+sealed trait Dir
+case object In extends Dir
+case object Out extends Dir
+case object All extends Dir
+case object None extends Dir
 
-  type E = Edge[EdgeDataType]
+class Shard[VertexDataType,EdgeDataType,GatherType](id:Int,verts:Array[Vertex[VertexDataType]]) {
 
-  var edges:List[Edge[EdgeDataType]]
+  type E = Edge[EdgeDataType,VertexDataType]
+  type V = Vertex[VertexDataType]
 
-  def run_gather:Future[List[GatherType]] = {
+  type ED = EdgeDataType
+  type VD = VertexDataType
+  type G = GatherType
+
+  var edges:List[E] = List()
+
+  var my_verts:List[V] = List()
+
+  def run_gather(gather:(V,E)=>(ED,G),direction:Dir):Future[List[((V,G),(E,ED))]] = {
     def g(e:E) = {
-      gas.gather(e.target, e)
-      gas.gather(e.source, e)
+      var l:List[((V,G),(E,ED))] = List()
+      if (direction == In || direction == All) {
+	val (a,b) = gather(e.target, e)
+	l = ((e.target,b),(e,a))::l
+      }
+      if (direction == Out || direction == All) {
+	val (c,d) = gather(e.source, e)
+	l=((e.source,d),(e,c))::l
+      }
+      l
     }
-    future { edges.map(g) }
+    future { edges.flatMap(g) }
   }
 
-  def push_edge(e:Edge[EdgeDataType]) = edges ::= e
+  def run_apply(apply:(V,G)=>VD,acc:Array[G]):Future[List[(V,VD)]] = {
+    def a(v:V) = {
+      (v,apply(v,acc(v.id)))
+    }
+    future { my_verts.map(a) }
+  }
 
-  def converged = false
+  def run_scatter(scatter:(V,E)=>(ED,Boolean),direction:Dir):Future[List[((E,ED),(V,Boolean))]] = {
+    def s(e:E) = {
+      var l:List[((E,ED),(V,Boolean))] = List()
+      if (direction == In || direction == All) {
+	val (a,b) = scatter(e.target,e)
+	l=((e,a),(e.source,b))::l
+      }
+      if (direction == Out || direction == All) {
+	val (c,d) = scatter(e.source,e)
+	l=((e,c),(e.target,d))::l
+      }
+      l
+    }
+    future { edges.flatMap(s) }
+  }
+
+  def push_edge(e:E) = edges ::= e
+
+  def push_vert(v:V) = my_verts ::= v
 
 }  
 
