@@ -19,8 +19,10 @@ class Graph[VD: Manifest, ED: Manifest](
   val vertices: spark.RDD[(Int, VD)],
   val edges: spark.RDD[((Int, Int), ED)]) {
 
-  def cache { edges.cache }
-
+  def cache () : Graph[VD, ED] = {
+    new Graph (vertices.cache(), edges.cache())
+  }
+ 
   def iterateGAS[A: Manifest](
     gather: (Vertex[VD], ED, Vertex[VD]) => (ED, A),
     sum: (A, A) => A,
@@ -37,7 +39,9 @@ class Graph[VD: Manifest, ED: Manifest](
 
     val numprocs = 16;
     val partitioner = new FirstPartitioner(numprocs);
-
+    
+    // distribute edges
+    // ((pid, source), (target, data))
     var part_edges =
       edges.map {
         case ((source, target), data) => {
@@ -46,20 +50,21 @@ class Graph[VD: Manifest, ED: Manifest](
         }
       }.partitionBy(partitioner).cache() //persist(StorageLevel.DISK_ONLY)
 
+    // distribute vertices
+    // ((pid, vid), data)
     var vreplicas =
       part_edges.flatMap {
         case ((pid, source), (target, _)) => List((source, pid), (target, pid))
       }.distinct(partitioner.numPartitions).join(vertices).map {
         case (vid, (pid, data)) => ((pid, vid), data)
-      }.partitionBy(partitioner)
+      }.partitionBy(partitioner).cache()
 
+    // (vid, pid)
     val vlocale = vreplicas.map { case ((pid, vid), vdata) => (vid, pid) }.cache()
 
     for (i <- 1 to niter) {
       // Begin iteration    
       System.out.println("Begin iteration:" + i)
-
-      
       /** Gather Phase --------------------------------------------- */      
       val gather_half_join = part_edges.join(vreplicas).map {
         case ((pid, source), ((target, edata), vdata_source)) =>
@@ -67,8 +72,11 @@ class Graph[VD: Manifest, ED: Manifest](
       }
 
       val gather_ = gather
-      val gather_edges_ = gather_edges
-      val accum1 = vreplicas.join(gather_half_join).flatMap {
+      val sum_ = sum
+      val apply_ = apply 
+      val gather_edges_ = gather_edges      
+      // (vid, accum)
+      val accum = vreplicas.join(half_join).flatMap {
         case ((pid, target), (vdata_target, (source, edata, vdata_source))) => {
           val sourceVertex = new Vertex[VD](source, vdata_source)
           val targetVertex = new Vertex[VD](target, vdata_target)
@@ -81,13 +89,10 @@ class Graph[VD: Manifest, ED: Manifest](
             case _ => List()
           }
         }
-      }
+      }.reduceByKey(sum_)
      
       /** Apply Phase --------------------------------------------- */
-      val sum_ = sum
-      val accum = accum1.reduceByKey(sum_)
-      val apply_ = apply
-      val vsync = vreplicas
+       val vsync = vreplicas
         .map {
           case ((pid, vid), data) => (vid, data)
         }.distinct(numprocs).join(accum)
@@ -95,10 +100,10 @@ class Graph[VD: Manifest, ED: Manifest](
           case (vid, (data, accum)) =>
             (vid, apply_(new Vertex[VD](vid, data), accum))
         }
-
+            
       vreplicas = vsync.join(vlocale).map {
         case (vid, (vdata, pid)) => ((pid, vid), vdata)
-      }
+      }.cache()
       
       /** Scatter Phase --------------------------------------------- 
       val scatter_half_join = part_edges.join(vreplicas).map {
@@ -128,8 +133,10 @@ class Graph[VD: Manifest, ED: Manifest](
       vreplicas.take(10).foreach(println)
     }
 
-    vreplicas.map { case ((vid, pid), vdata) => (vid, vdata) }.distinct(16)
-
+    // Collapse vreplicas, edges and retuen a new graph
+    val vertices_ret = vreplicas.map{case ((pid, vid), vdata) => (vid, vdata)}.distinct(numprocs)
+    val edges_ret = part_edges.map{case ((pid, src), (target, edata)) => ((src, target), edata)}
+    new Graph(vertices_ret, edges_ret)
   }
 }
 
@@ -160,12 +167,12 @@ object GraphTest {
     val graph = Graph.load_graph(sc, "/Users/jegonzal/Data/google.tsv", x => false)
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, 1.0F) }
     val graph2 = new Graph(initial_ranks, graph.edges.sample(false, 0.1, 1))
-    val result = graph2.iterateGAS(
+    val graph_ret = graph2.iterateGAS(
       (v1, edata, v2) => (edata, (v1.data + v2.data) / 2.0F),
       (a: Float, b: Float) => a + b,
       (v, a: Float) => v.data + a,
       (v1, edata, v2) => (edata, false),
-      5)
-    result.take(10).foreach(println);
+      5).cache()
+    graph_ret.vertices.take(10).foreach(println)
   }
 }
