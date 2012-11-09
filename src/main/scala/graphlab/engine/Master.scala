@@ -21,7 +21,7 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
 
   private def hash(n:Int):Int = n % NUM_SHARDS
 
-  def build_graph(fname:String,parse_input:(String)=>EdgeDataType,init_vertex:()=>VertexDataType) = {
+  def build_graph(fname:String,parse_input:(String)=>EdgeDataType,init_vertex:(Int)=>VertexDataType) = {
 
     //read graph in from file
     val split_input = Source.fromFile(fname).mkString.split("\n").map(_.split("\t"))
@@ -36,6 +36,12 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
 	num_edges = num_edges + 1
 	(num_edges,s.toInt,d.toInt,parse_input(data))
       }
+      case List(s,d) => {
+	num_verts = max(num_verts,s.toInt)
+	num_verts = max(num_verts,d.toInt)
+	num_edges = num_edges + 1
+	(num_edges,s.toInt,d.toInt,parse_input(""))
+      }	
       case _ => throw new RuntimeException("malformed input")
     }
 	
@@ -44,7 +50,7 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
 
     num_verts = num_verts + 1 //yay off by one
 
-    def make_vertex(id:Int):V = new graphlab.graph.Vertex(id,init_vertex())
+    def make_vertex(id:Int):V = new graphlab.graph.Vertex(id,init_vertex(id))
     
     //all shards will have reference to this
     verts = (0 until num_verts).map(make_vertex).toArray
