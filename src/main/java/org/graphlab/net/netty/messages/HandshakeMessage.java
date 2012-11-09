@@ -22,9 +22,12 @@ public class HandshakeMessage extends GraphLabMessage {
     public static void register() {
         MessageIds.registerDecoder(MessageIds.HANDSHAKE, new GraphLabMessageDecoder() {
             @Override
-            public GraphLabMessage decode(ChannelBuffer buf) {
+            public GraphLabMessage decode(ChannelHandlerContext ctx, Channel channel, ChannelBuffer buf) {
+                if (buf.readableBytes() < 12) return null;
                 int nodeId = buf.readInt();
                 String address = GraphLabMessage.readString(buf);
+                if (address == null) return null;
+
                 int port = buf.readInt();
                 return new HandshakeMessage(nodeId, address, port);
             }

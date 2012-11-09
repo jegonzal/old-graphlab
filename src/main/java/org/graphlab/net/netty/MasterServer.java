@@ -9,6 +9,7 @@ import org.jboss.netty.bootstrap.ServerBootstrap;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.channel.*;
 import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
+import org.jboss.netty.handler.codec.frame.FrameDecoder;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -42,6 +43,20 @@ public class MasterServer{
         this.master = master;
     }
 
+
+    private class MasterDecoder extends FrameDecoder {
+        @Override
+        protected Object decode(ChannelHandlerContext ctx, Channel channel, ChannelBuffer buf) throws Exception {
+            buf.markReaderIndex();
+            short messageId = buf.readShort();
+            Object message = MessageIds.getDecoder(messageId).decode(ctx, channel, buf);
+            if (message == null) {
+                buf.resetReaderIndex();
+            }
+            return message;
+        }
+    }
+
     public void start() {
         ChannelFactory factory =  new NioServerSocketChannelFactory(
                 Executors.newCachedThreadPool(),
@@ -51,8 +66,9 @@ public class MasterServer{
             @Override
             public ChannelPipeline getPipeline() throws Exception {
                 ChannelPipeline pipeline = pipeline();
-                pipeline.addLast("handler", new MasterServerHandler());
                 pipeline.addLast("encoder", GraphLabMessage.encoder());
+                pipeline.addLast("decoder", new MasterDecoder());
+                pipeline.addLast("handler", new MasterServerHandler());
 
                 return pipeline;
             }
@@ -101,18 +117,14 @@ public class MasterServer{
 
 
 
+
         public void messageReceived(ChannelHandlerContext ctx, MessageEvent e)  throws Exception {
-            ChannelBuffer buf = (ChannelBuffer) e.getMessage();
-            while(buf.readable()) {
-                short message = buf.readShort();
+            System.out.println("Master message received: " + e.getMessage());
+            GraphLabMessage message = (GraphLabMessage) e.getMessage();
 
-                System.out.println("Received message:" + message);
-                System.out.flush();
-
-                switch(message) {
+                switch(message.getMessageId()) {
                     case MessageIds.HANDSHAKE:
-                        HandshakeMessage handshake = (HandshakeMessage)
-                                MessageIds.getDecoder(MessageIds.HANDSHAKE).decode(buf);
+                        HandshakeMessage handshake = (HandshakeMessage) message;
 
                         // Must be faster way to do this..
                         if (channelIdToNodeId.values().contains(handshake.getNodeId())) {
@@ -151,14 +163,12 @@ public class MasterServer{
                         System.out.println("Nodes now: " + nodes);
                         break;
                     case MessageIds.FINISHED_PHASE:
-                        FinishedPhaseMessage finishedPhaseMessage = (FinishedPhaseMessage)
-                                MessageIds.getDecoder(message).decode(buf);
+                        FinishedPhaseMessage finishedPhaseMessage = (FinishedPhaseMessage) message;
                         int nodeId = channelIdToNodeId.get(e.getChannel().getId()); // Can we store it in the context?
-                        System.out.println("FInish: " + finishedPhaseMessage + " , master=" + master);
+                        System.out.println("Finish: " + finishedPhaseMessage + " , master=" + master);
                         master.remoteFinishedPhase(nodeId, finishedPhaseMessage.getPhase());
                         break;
                 }
-            }
         }
 
     }

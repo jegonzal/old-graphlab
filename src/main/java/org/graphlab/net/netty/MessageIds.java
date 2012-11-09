@@ -25,6 +25,9 @@ public class MessageIds {
 
 
     public static GraphLabMessageDecoder getDecoder(short messageId) {
+        if (!decoders.containsKey(messageId))     {
+            throw new RuntimeException("No decoder for message id: " + messageId);
+        }
         return decoders.get(messageId);
     }
 

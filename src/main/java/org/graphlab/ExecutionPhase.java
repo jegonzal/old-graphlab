@@ -12,6 +12,7 @@ public class ExecutionPhase {
 
     public ExecutionPhase(int phaseNum) {
         this.phaseNum = phaseNum;
+        if (phaseNum > 2) throw new IllegalArgumentException("Illegal phase " + phaseNum);
     }
 
     public int getPhaseNum() {

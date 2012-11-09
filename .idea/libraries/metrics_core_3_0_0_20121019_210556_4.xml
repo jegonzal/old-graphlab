@@ -1,0 +1,9 @@
+<component name="libraryTable">
+  <library name="metrics-core-3.0.0-20121019.210556-4">
+    <CLASSES>
+      <root url="jar://$MAVEN_REPOSITORY$/com/yammer/metrics/metrics-core/3.0.0-SNAPSHOT/metrics-core-3.0.0-20121019.210556-4.jar!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>
