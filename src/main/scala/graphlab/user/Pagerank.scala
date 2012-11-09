@@ -7,14 +7,14 @@ object Pagerank {
 
   def main(args:Array[String]) = {
     
-    val m:Master[(Double,Double),Double,Double] = new Master
+    val m:Master[(Double,Double),Double] = new Master
 
     val RESET_PROB = .15
     val CONVERGENCE = .001
 
     m.build_graph(args(0),(_)=>1.0,(_)=>(1.0,5.0))
 
-    m.run_gas((v,e) => {
+    m.run_gas[Double]((v,e) => {
       //gather
       val agg = (1 - RESET_PROB)*e.source.data._1/e.source.num_out_edges
       (e.data,agg)

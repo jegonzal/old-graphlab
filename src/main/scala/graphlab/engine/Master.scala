@@ -9,11 +9,11 @@ import graphlab.graph._
 import graphlab.user._
 import graphlab.engine._
 
-class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
+class Master[VertexDataType,EdgeDataType] {
   
   type E = Edge[EdgeDataType,VertexDataType]
   type V = Vertex[VertexDataType]
-  type S = Shard[VertexDataType,EdgeDataType,GatherType]
+  type S = Shard[VertexDataType,EdgeDataType]
 
   var shards:Array[S] = null
   var verts:Array[V] = null
@@ -87,7 +87,7 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
 
   }
 
-  def run_gas(
+  def run_gas[GatherType:Manifest](
     gather:(V,E)=>(EdgeDataType,GatherType),
     sum:(GatherType,GatherType)=>GatherType,
     apply:(V,GatherType)=>VertexDataType,
@@ -106,6 +106,9 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
 
     val lock:AnyRef = new AnyRef()
 
+    shards.map(_.register_lock(lock))
+    shards.map(_.register_signal(signal))
+
     //run shards until convergence
     while (signal.foldLeft(false)(_||_)) {
 
@@ -116,29 +119,37 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
       //reset accumulator to 0
       acc = ((0 until verts.length).map(_ => Left(default_gather))).toArray
 
+      //what to do when done gathering
+      def accumulate(x:((V,GatherType),(E,EdgeDataType))):Unit = {
+	val (vert,a) = x._1
+	val (edge,data) = x._2
+	acc(vert.id) match {
+	  case Left(_) => acc(vert.id) = Right(a)
+	  case Right(n) => acc(vert.id) = Right(sum(n,a))
+	}
+	edge.data = data
+      }
+
       //kick off gather for all shards
-      val gather_futures = shards.map(_.run_gather(gather,gatherdir,acc,lock,sum))
+      val gather_futures = shards.map(_.run_gather[GatherType](gather,gatherdir,accumulate))
 
       //wait for all gathers to finish, and run accumulation
       gather_futures.map(_.apply())
 
       /* APPLY PHASE */
 
-      //kick off apply for all shards
-      val apply_futures = shards.map(_.run_apply(apply,acc))
-
       //what to do when done applying
       def commit(x:(V,VertexDataType)):Unit = {
 	x._1.data = x._2
       }
+
+      //kick off apply for all shards
+      val apply_futures = shards.map(_.run_apply[GatherType](apply,acc,commit))
       
       //wait for all apply to finish
-      apply_futures.map(_.apply().map(commit))
+      apply_futures.map(_.apply())
 
       /* SCATTER PHASE */
-
-      //kick off scatter for all shards
-      val scatter_futures = shards.map(_.run_scatter(scatter,scatterdir))
 
       //reset signal to all false
       signal = (0 until verts.length).map(_ => false).toArray
@@ -150,9 +161,12 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
 	signal(vert.id) |= sig
 	edge.data = data
       }
-      
+
+      //kick off scatter for all shards
+      val scatter_futures = shards.map(_.run_scatter[GatherType](scatter,scatterdir,publish))
+
       //wait for scatter to finish
-      scatter_futures.map(_.apply().map(publish))
+      scatter_futures.map(_.apply())
 
       //count the number of iterations
       iter += 1
