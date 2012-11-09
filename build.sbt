@@ -48,8 +48,6 @@ libraryDependencies += "com.typesafe.akka" % "akka-slf4j" % "2.0.3"
 libraryDependencies += "io.netty" % "netty" % "3.5.9.Final"
 
 
+libraryDependencies += "asm" % "asm-all" % "3.3.1"
 
-
-
-
-
+libraryDependencies += "org.javassist" % "javassist" % "3.15.0-GA"
