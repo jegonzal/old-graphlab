@@ -2,7 +2,6 @@ package graphlab.user
 
 import graphlab.user._
 import graphlab.engine._
-import scala.collection.mutable.Set
 
 object GraphColor {
 
