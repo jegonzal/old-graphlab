@@ -12,7 +12,7 @@ case object Out extends Dir
 case object All extends Dir
 case object NoEdges extends Dir
 
-class Shard[VertexDataType,EdgeDataType](id:Int,verts:Array[Vertex[VertexDataType]]) {
+class Shard[VertexDataType,EdgeDataType](id:Int) {
 
   type E = Edge[EdgeDataType,VertexDataType]
   type V = Vertex[VertexDataType]
@@ -20,14 +20,6 @@ class Shard[VertexDataType,EdgeDataType](id:Int,verts:Array[Vertex[VertexDataTyp
   type ED = EdgeDataType
   type VD = VertexDataType
 
-  var edges:List[E] = List()
-
-  var my_verts:List[V] = List()
-
-  var lock:AnyRef = null
-  var signal:Array[Boolean] = null
-  def register_lock(l:AnyRef) = { lock = l }
-  def register_signal(s:Array[Boolean]) = { signal = s }
 
   def map_reduce_edges[G](mapFun:(E)=>G,accum:(G,G)=>G):Future[List[G]] = {
     future {
@@ -40,10 +32,28 @@ class Shard[VertexDataType,EdgeDataType](id:Int,verts:Array[Vertex[VertexDataTyp
 
   def map_reduce_verts[G](mapFun:(V)=>G,accum:(G,G)=>G):Future[List[G]] = {
     future {
-      my_verts.map(mapFun) match {
+      verts.map(mapFun) match {
 	case List() => List() 
 	case g => List(g.tail.foldLeft(g.head)(accum))
       }
+    }
+  }
+  
+  def transform_verts(mapFun:(V)=>VertexDataType):Future[Unit] = {
+    future {
+      def f(v:V):Unit = {
+	v.data = mapFun(v)
+      }
+      verts.foreach(f)
+    }
+  }
+
+  def transform_edges(mapFun:(E)=>EdgeDataType):Future[Unit] = {
+    future {
+      def f(e:E):Unit = {
+	e.data = mapFun(e)
+      }
+      edges.foreach(f)
     }
   }
 
@@ -80,7 +90,7 @@ class Shard[VertexDataType,EdgeDataType](id:Int,verts:Array[Vertex[VertexDataTyp
       }
     }
     future { 
-      val v = my_verts.flatMap(a) 
+      val v = verts.flatMap(a) 
       lock.synchronized {
 	v.map(commit)
       }
@@ -108,9 +118,21 @@ class Shard[VertexDataType,EdgeDataType](id:Int,verts:Array[Vertex[VertexDataTyp
     }
   }
 
+  //used for constructing shards
   def push_edge(e:E) = edges ::= e
+  def push_vert(v:V) = verts ::= v
 
-  def push_vert(v:V) = my_verts ::= v
+  //all shards share one global lock
+  //synchronize on that lock when running callbacks at the end of phases
+  var lock:AnyRef = null
+  var signal:Array[Boolean] = null
+
+  def register_lock(l:AnyRef) = { lock = l }
+  def register_signal(s:Array[Boolean]) = { signal = s }
+
+  //edges and vertices that this shard owns
+  var edges:List[E] = List()
+  var verts:List[V] = List()
 
 }  
 
