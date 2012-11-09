@@ -56,9 +56,9 @@ class Graph[VD: Manifest, ED: Manifest](
 
     val vlocale = vreplicas.map { case ((pid, vid), vdata) => (vid, pid) }.cache()
 
-    for (i <- 1 to niter) {
+    for(i <- 1 to niter) {
       // Begin iteration    
-      System.out.println("Begin iteration:" + i);
+      System.out.println("Begin iteration:" + i)
 
       // gather in edges    
       System.out.println("Gather in edges")
@@ -69,16 +69,15 @@ class Graph[VD: Manifest, ED: Manifest](
           ((pid, target), (source, edata, vdata_source))
       }
 
-      half_join.take(10).foreach(println)
-
-      val gather_ = gather;
+      val gather_ = gather
+      val gather_edges_ = gather_edges
       val accum1 = vreplicas.join(half_join).flatMap {
         case ((pid, target), (vdata_target, (source, edata, vdata_source))) => {
           val sourceVertex = new Vertex[VD](source, vdata_source)
           val targetVertex = new Vertex[VD](target, vdata_target)
           val (_, trg_gather) = gather_(sourceVertex, edata, targetVertex)
           val (_, src_gather) = gather_(targetVertex, edata, sourceVertex)
-          gather_edges match {
+          gather_edges_ match {
             case "in" => List((target, trg_gather))
             case "out" => List((source, src_gather))
             case "both" => List((target, trg_gather), (source, src_gather))
@@ -86,22 +85,19 @@ class Graph[VD: Manifest, ED: Manifest](
           }
         }
       }
-      accum1.take(10).foreach(println)
      
-      val accum = accum1.reduceByKey(sum);
+      val sum_ = sum
+      val accum = accum1.reduceByKey(sum_)
 
-      accum.take(10).foreach(println)
-
+      val apply_ = apply
       val vsync = vreplicas
         .map {
           case ((pid, vid), data) => (vid, data)
         }.distinct(numprocs).join(accum)
         .map {
           case (vid, (data, accum)) =>
-            (vid, apply(new Vertex[VD](vid, data), accum))
+            (vid, apply_(new Vertex[VD](vid, data), accum))
         }
-
-      vsync.take(10).foreach(println)
 
       vreplicas = vsync.join(vlocale).map {
         case (vid, (vdata, pid)) => ((pid, vid), vdata)
@@ -137,7 +133,6 @@ object Graph {
 
 object GraphTest {
   def main(args: Array[String]) {
-    System.setProperty("sun.io.serialization.extendedDebugInfo", "true")
     val sc = new SparkContext("local[4]", "pagerank")
     val graph = Graph.load_graph(sc, "/Users/jegonzal/Data/google.tsv", x => false)
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, 1.0F) }
