@@ -31,16 +31,20 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
 
     def make_edge_tuple(l:Array[java.lang.String]) = l.toList match {
       case List(s,d,data) => {
-	num_verts = max(num_verts,s.toInt)
-	num_verts = max(num_verts,d.toInt)
+	val ss = s.trim.toInt
+	val dd = d.trim.toInt
+	num_verts = max(num_verts,ss)
+	num_verts = max(num_verts,dd)
 	num_edges = num_edges + 1
-	(num_edges,s.toInt,d.toInt,parse_input(data))
+	(num_edges,ss,dd,parse_input(data))
       }
       case List(s,d) => {
-	num_verts = max(num_verts,s.toInt)
-	num_verts = max(num_verts,d.toInt)
+	val ss = s.trim.toInt
+	val dd = d.trim.toInt
+	num_verts = max(num_verts,ss)
+	num_verts = max(num_verts,dd)
 	num_edges = num_edges + 1
-	(num_edges,s.toInt,d.toInt,parse_input(""))
+	(num_edges,ss,dd,parse_input(""))
       }	
       case _ => throw new RuntimeException("malformed input")
     }

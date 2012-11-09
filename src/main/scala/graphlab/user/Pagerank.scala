@@ -12,7 +12,7 @@ object Pagerank {
     val RESET_PROB = .15
     val CONVERGENCE = .001
 
-    m.build_graph(args(0),_.toDouble,(_)=>(1.0,5.0))
+    m.build_graph(args(0),(_)=>1.0,(_)=>(1.0,5.0))
 
     m.run_gas((v,e) => {
       //gather
