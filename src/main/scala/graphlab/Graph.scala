@@ -60,8 +60,7 @@ class Graph[VD: Manifest, ED: Manifest](
       System.out.println("Begin iteration:" + i)
 
       // gather in edges    
-      System.out.println("Gather in edges")
-
+      /** Gather Phase --------------------------------------------- */
       val half_join = part_edges.join(vreplicas).map {
         case ((pid, source), ((target, edata), vdata_source)) =>
           ((pid, target), (source, edata, vdata_source))
@@ -83,10 +82,10 @@ class Graph[VD: Manifest, ED: Manifest](
           }
         }
       }
-
+     
+      /** Apply Phase --------------------------------------------- */
       val sum_ = sum
       val accum = accum1.reduceByKey(sum_)
-
       val apply_ = apply
       val vsync = vreplicas
         .map {
@@ -100,6 +99,10 @@ class Graph[VD: Manifest, ED: Manifest](
       vreplicas = vsync.join(vlocale).map {
         case (vid, (vdata, pid)) => ((pid, vid), vdata)
       }
+      
+      
+      
+      
       vreplicas.take(10).foreach(println)
     }
 
