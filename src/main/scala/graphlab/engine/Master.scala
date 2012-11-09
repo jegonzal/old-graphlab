@@ -99,6 +99,8 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
       //kick off gather for all shards
       val gather_futures = shards.map(_.run_gather(gather,gatherdir))
 
+      acc = ((0 until verts.length).map({_ => init_gather()})).toArray
+
       //what to do when done gathering
       def accumulate(x:((V,GatherType),(E,EdgeDataType))):Unit = {
 	val (vert,a) = x._1
@@ -140,8 +142,6 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
       //wait for scatter to finish
       scatter_futures.map(_.apply().map(publish))
 
-      if (iter > 5)
-	signal = (0 until verts.length).map(_ => false).toArray
       iter += 1
 
     }    
