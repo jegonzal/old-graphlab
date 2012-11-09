@@ -15,7 +15,7 @@ object ConnectedComponents {
       math.min, //sum
       (v,g) => (math.min(g,v.data._1),v.data._1),	//apply
       (v,e) => (e.data,v.data._1 != v.data._2),	//scatter
-      () => Int.MaxValue, //init gather type
+      Int.MaxValue, //init gather type
       All,All) //gather_edges, scatter_edges
 
     m.dump_graph()

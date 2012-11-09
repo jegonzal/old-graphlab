@@ -92,40 +92,35 @@ class Master[VertexDataType,EdgeDataType,GatherType:Manifest] {
     sum:(GatherType,GatherType)=>GatherType,
     apply:(V,GatherType)=>VertexDataType,
     scatter:(V,E)=>(EdgeDataType,Boolean),
-    init_gather:()=>GatherType,
+    default_gather:GatherType,
     gatherdir:Dir,scatterdir:Dir) = {
 
     println("starting GAS")
 
-    var acc:Array[GatherType] = ((0 until verts.length).map({_ => init_gather()})).toArray
+    var acc:Array[Either[GatherType,GatherType]] = null
 
     var signal:Array[Boolean] = (0 until verts.length).map(_ => true).toArray
     
     //count the iterations
     var iter = 0
 
+    val lock:AnyRef = new AnyRef()
+
     //run shards until convergence
     while (signal.foldLeft(false)(_||_)) {
 
-      println("gas iteration")
+      println("starting gas iteration")
 
       /* GATHER PHASE */
 
+      //reset accumulator to 0
+      acc = ((0 until verts.length).map(_ => Left(default_gather))).toArray
+
       //kick off gather for all shards
-      val gather_futures = shards.map(_.run_gather(gather,gatherdir))
+      val gather_futures = shards.map(_.run_gather(gather,gatherdir,acc,lock,sum))
 
-      acc = ((0 until verts.length).map({_ => init_gather()})).toArray
-
-      //what to do when done gathering
-      def accumulate(x:((V,GatherType),(E,EdgeDataType))):Unit = {
-	val (vert,a) = x._1
-	val (edge,data) = x._2
-	acc(vert.id) = sum(acc(vert.id),a)
-	edge.data = data
-      }
-
-      //wait for all gathers to finish, and runn accumulation
-      gather_futures.map(_.apply().map(accumulate))
+      //wait for all gathers to finish, and run accumulation
+      gather_futures.map(_.apply())
 
       /* APPLY PHASE */
 

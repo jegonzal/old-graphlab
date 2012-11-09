@@ -29,7 +29,7 @@ object Pagerank {
 	val err = math.abs(v.data._1-v.data._2)
 	(e.data,err > CONVERGENCE)
       },
-      () => 0.0, //init gather type
+      0.0, //default gather type
       In,Out) //gather_edges, scatter_edges
 
     m.dump_graph()

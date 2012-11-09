@@ -25,7 +25,7 @@ object GraphColor {
           (c,v.data._1)
       },	//apply
       (v,e) => (e.data,v.data._1 != v.data._2),	//scatter
-      () => Set(), //init gather type
+      Set(), //init gather type
       All,All) //gather_edges, scatter_edges
 
     m.dump_graph()
