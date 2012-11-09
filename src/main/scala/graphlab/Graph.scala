@@ -59,16 +59,16 @@ class Graph[VD: Manifest, ED: Manifest](
       // Begin iteration    
       System.out.println("Begin iteration:" + i)
 
-      // gather in edges    
-      /** Gather Phase --------------------------------------------- */
-      val half_join = part_edges.join(vreplicas).map {
+      
+      /** Gather Phase --------------------------------------------- */      
+      val gather_half_join = part_edges.join(vreplicas).map {
         case ((pid, source), ((target, edata), vdata_source)) =>
           ((pid, target), (source, edata, vdata_source))
       }
 
       val gather_ = gather
       val gather_edges_ = gather_edges
-      val accum1 = vreplicas.join(half_join).flatMap {
+      val accum1 = vreplicas.join(gather_half_join).flatMap {
         case ((pid, target), (vdata_target, (source, edata, vdata_source))) => {
           val sourceVertex = new Vertex[VD](source, vdata_source)
           val targetVertex = new Vertex[VD](target, vdata_target)
@@ -100,7 +100,29 @@ class Graph[VD: Manifest, ED: Manifest](
         case (vid, (vdata, pid)) => ((pid, vid), vdata)
       }
       
-      
+      /** Scatter Phase --------------------------------------------- 
+      val scatter_half_join = part_edges.join(vreplicas).map {
+        case ((pid, source), ((target, edata), vdata_source)) =>
+          ((pid, target), (source, edata, vdata_source))
+      }
+
+      val scatter_ = scatter
+      val scatter_edges_ = scatter_edges
+      val accum1 = vreplicas.join(scatter_half_join).flatMap {
+        case ((pid, target), (vdata_target, (source, edata, vdata_source))) => {
+          val sourceVertex = new Vertex[VD](source, vdata_source)
+          val targetVertex = new Vertex[VD](target, vdata_target)
+          val (_, trg_gather) = gather_(sourceVertex, edata, targetVertex)
+          val (_, src_gather) = gather_(targetVertex, edata, sourceVertex)
+          gather_edges_ match {
+            case "in" => List((target, trg_gather))
+            case "out" => List((source, src_gather))
+            case "both" => List((target, trg_gather), (source, src_gather))
+            case _ => List()
+          }
+        }
+      }
+     */
       
       
       vreplicas.take(10).foreach(println)
