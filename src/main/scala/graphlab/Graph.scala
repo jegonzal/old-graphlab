@@ -48,6 +48,8 @@ class Graph[VD: Manifest, ED: Manifest](
 
     val numprocs = 4;
     val partitioner = new FirstPartitioner(numprocs);
+    val hashpartitioner = new HashPartitioner(numprocs)
+
     
     // distribute edges
     // ((pid, source), (target, data))
@@ -74,7 +76,8 @@ class Graph[VD: Manifest, ED: Manifest](
   
 
     // (vid, pid)
-    val vlocale = vreplicas.map { case ((pid, vid), vdata) => (vid, pid) }.cache()
+    val vlocale = vreplicas.map { case ((pid, vid), vdata) => (vid, pid) }
+      					   .partitionBy(hashpartitioner).cache()
     //println("vlocale")  
     //vlocale.collect.foreach(println)
 
@@ -133,8 +136,7 @@ class Graph[VD: Manifest, ED: Manifest](
         }
         //println("vsync")
         //vsync.foreach(println)
-      
-            
+                  
       vreplicas = vsync.join(vlocale).map {
         case (vid, (vdata, pid)) => ((pid, vid), (vdata, false))
       }.cache()
@@ -177,7 +179,7 @@ object Graph {
     fname: String, edge_parser: String => ED) = {
 
     val partitioner = new FirstPartitioner()
-
+    
     val edges = sc.textFile(fname).map(
       line => {
         val source :: target :: tail = line.split("\t").toList
@@ -199,12 +201,12 @@ object GraphTest {
     val sc = new SparkContext("local[4]", "pagerank")
     val graph = Graph.load_graph(sc, "/Users/haijieg/tmp/google.tsv", x => false)
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, 1.0F) }
-    val graph2 = new Graph(initial_ranks, graph.edges.sample(false, 0.1, 1))
+    val graph2 = new Graph(initial_ranks, graph.edges.sample(false, 0.01, 1))
     val graph_ret = graph2.iterateGAS(
-      (v1, edata, v2) => (edata, v1.data+v2.data), // gather
+      (v1, edata, v2) => (edata, v2.data), // gather
       (a: Float, b: Float) => a + b,	// sum
       0F,
-      (v, a: Float) => v.data+a,	// apply
+      (v, a: Float) => (0.15 + 0.85 * a).toFloat,	// apply
       (v1, edata, v2) => (edata, false), // scatter
       5).cache()
     println("Computed graph: #edges: " + graph_ret.nedges() + "  #vertices" + graph_ret.nvertices())  
