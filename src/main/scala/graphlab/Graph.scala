@@ -14,6 +14,9 @@ class FirstPartitioner(val numPartitions: Int = 4) extends spark.Partitioner {
 }
 
 class Vertex[VD](val id: Int, val data: VD);
+class Edge[VD, ED](val source: Vertex[VD], val target: Vertex[VD], 
+    val data: ED);
+
 
 class Graph[VD: Manifest, ED: Manifest](
   val vertices: spark.RDD[(Int, VD)],
@@ -32,11 +35,11 @@ class Graph[VD: Manifest, ED: Manifest](
   }
 
   def iterateGAS[A: Manifest](
-    gather: (Vertex[VD], ED, Vertex[VD]) => (ED, A),
+    gather: (Int, Edge[VD,ED]) => (ED, A),
     sum: (A, A) => A,
     default: A,
     apply: (Vertex[VD], A) => VD,
-    scatter: (Vertex[VD], ED, Vertex[VD]) => (ED, Boolean),
+    scatter: (Int, Edge[VD,ED]) => (ED, Boolean),
     niter: Int,
     gather_edges: String = "in",
     scatter_edges: String = "out") = {
@@ -122,8 +125,9 @@ class Graph[VD: Manifest, ED: Manifest](
                 target_id, target_vdata, target_active))  => {          
           val sourceVertex = new Vertex[VD](source_id, source_vdata)
           val targetVertex = new Vertex[VD](target_id, target_vdata)
-          lazy val (_, target_gather) = gather_(sourceVertex, edata, targetVertex)
-          lazy val (_, source_gather) = gather_(targetVertex, edata, sourceVertex)
+          val edge = new Edge(sourceVertex, targetVertex, edata);
+          lazy val (_, target_gather) = gather_(source_id, edge);
+          lazy val (_, source_gather) = gather_(target_id, edge);
           // compute the gather as needed
           (if(target_active && (gather_edges_ == "in" || gather_edges_ == "both")) 
             List((target_id, target_gather)) else List()) ++
@@ -148,11 +152,40 @@ class Graph[VD: Manifest, ED: Manifest](
           case (vid, ((data, false), _)) => (vid, (data, false))
         }
 
-        vreplicas = vsync.join(vlocale).map {
+      vreplicas = vsync.join(vlocale).map {
         case (vid, ((vdata, active), pid)) => ((pid, vid), (vdata, active))
       }.cache()
 
       /** Scatter Phase ---------------------------------------------*/
+      val scatter_join = join_edges_and_vertices(vreplicas, part_edges)
+      val scatter_ = scatter
+      val scatter_edges_ = scatter_edges
+      val active_vertices = scatter_join.flatMap {
+        case ((pid, source), 
+            (source_id, source_vdata, source_active, edata, 
+                target_id, target_vdata, target_active))  => {          
+          val sourceVertex = new Vertex[VD](source_id, source_vdata)
+          val targetVertex = new Vertex[VD](target_id, target_vdata)
+          val edge = new Edge(sourceVertex, targetVertex, edata);
+          lazy val (_, new_active_target) = scatter_(source_id, edge)
+          lazy val (_, new_active_source) = scatter_(target_id, edge)
+          // compute the gather as needed
+          (if(target_active && (scatter_edges_ == "in"  || scatter_edges_ == "both")) 
+            List((source_id, new_active_source)) else List()) ++
+          (if(source_active && (scatter_edges_ == "out" || scatter_edges_ == "both")) 
+            List((target_id, new_active_target)) else List())
+        }
+      }.reduceByKey( _|_ )
+      
+      val replicate_active = vlocale.leftOuterJoin(active_vertices).map {
+        case (vid, (pid, Some(active))) => ((pid, vid), active)
+        case (vid, (pid, None)) => ((pid, vid), false)
+      }.cache()
+      
+      vreplicas = vreplicas.join(replicate_active).map {
+        case ((pid,vid), ((vdata, old_active), new_active)) => 
+          ((pid, vid), (vdata, new_active))
+      }.cache()
       
       vreplicas.take(10).foreach(println)
     }
@@ -191,13 +224,13 @@ object GraphTest {
     val sc = new SparkContext("local[4]", "pagerank")
     val graph = Graph.load_graph(sc, "/Users/jegonzal/Data/google.tsv", x => false)
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, 1.0F) }
-    val graph2 = new Graph(initial_ranks, graph.edges.sample(false, 0.01, 1))
+    val graph2 = new Graph(initial_ranks, graph.edges.sample(false, 0.001, 1))
     val graph_ret = graph2.iterateGAS(
-      (v1, edata, v2) => (edata, v2.data), // gather
+      (me_id, edge) => (edge.data, edge.source.data), // gather
       (a: Float, b: Float) => a + b,	// sum
       0F,
       (v, a: Float) => (0.15 + 0.85 * a).toFloat,	// apply
-      (v1, edata, v2) => (edata, false), // scatter
+      (me_id, edge) => (edge.data, false), // scatter
       5).cache()
     println("Computed graph: #edges: " + graph_ret.nedges() + "  #vertices" + graph_ret.nvertices())
     graph_ret.vertices.take(10).foreach(println)
