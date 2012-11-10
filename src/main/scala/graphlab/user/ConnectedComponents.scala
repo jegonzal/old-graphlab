@@ -7,18 +7,18 @@ object ConnectedComponents {
 
   def main(args:Array[String]) = {
     
-    val m:Master[(Int,Int),Int] = new Master
+    val graph:Graph[(Int,Int),Int] = new Graph
 
-    m.build_graph(args(0),(s)=>0,(id)=>(id,id))
+    graph.build_graph(args(0),(s)=>0,(id)=>(id,id))
 
-    m.run_gas[Int]((v,e) => (e.data,e.get_other_vertex(v).id), //gather
+    graph.run_gas[Int]((v,e) => (e.data,e.get_other_vertex(v).id), //gather
       math.min, //sum
       (v,g) => (math.min(g,v.data._1),v.data._1),	//apply
       (v,e) => (e.data,v.data._1 != v.data._2),	//scatter
       Int.MaxValue, //init gather type
       All,All) //gather_edges, scatter_edges
 
-    m.dump_graph()
+    graph.dump_graph()
 
   }
 }

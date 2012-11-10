@@ -9,11 +9,11 @@ object GraphColor {
 
   def main(args:Array[String]) = {
     
-    val m:Master[(Int,Int),Int] = new Master
+    val graph:Graph[(Int,Int),Int] = new Graph
 
-    m.build_graph(args(0),(s)=>0,(id)=>(id,id))
+    graph.build_graph(args(0),(s)=>0,(id)=>(id,id))
     
-    m.run_gas[Set[Int]]((v,e) => (e.data,
+    graph.run_gas[Set[Int]]((v,e) => (e.data,
         if(v.id > e.get_other_vertex(v).id) Set() else Set(e.get_other_vertex(v).data._1)
         ), //gather
       _|_, //sum
@@ -29,7 +29,7 @@ object GraphColor {
       Set(), //init gather type
       All,All) //gather_edges, scatter_edges
 
-    m.dump_graph()
+    graph.dump_graph()
 
   }
 }
