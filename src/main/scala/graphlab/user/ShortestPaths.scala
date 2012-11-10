@@ -7,9 +7,9 @@ object ShortestPaths {
 
   def main(args:Array[String]) = {
     
-    val m:Master[(Double,Double),Double] = new Master
+    val graph:Graph[(Double,Double),Double] = new Graph
 
-    m.build_graph(args(0),(s)=>s.toDouble,(id)=>((if (id == args(1).toInt) 0.0 else -1.0), -1.0))
+    graph.build_graph(args(0),(s)=>s.toDouble,(id)=>((if (id == args(1).toInt) 0.0 else -1.0), -1.0))
     
     def min_positive(x: Double, y: Double) = { 
 	  (x>y, x>=0.0, y>=0.0) match {
@@ -21,14 +21,14 @@ object ShortestPaths {
 	  }
   }
     
-    m.run_gas[Double]((v,e) => (e.data,e.get_other_vertex(v).data._1+e.data), //gather
+    graph.run_gas[Double]((v,e) => (e.data,e.get_other_vertex(v).data._1+e.data), //gather
       min_positive, //sum
       (v,g) => (min_positive(g,v.data._1),v.data._1),	//apply
       (v,e) => (e.data,v.data._1 != v.data._2),	//scatter
       -1.0, //init gather type
       All,All) //gather_edges, scatter_edges
 
-    m.dump_graph()
+    graph.dump_graph()
 
   }
 }
