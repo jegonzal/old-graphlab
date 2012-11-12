@@ -290,8 +290,11 @@ object GraphTest {
   }
 
   def main(args: Array[String]) {
-    val fname = if (args.length == 1) args(0)
-    else "/Users/jegonzal/Data/google.tsv"
+    val fname = 
+      if (args.length == 1) {
+        println(args(0))
+        args(0)
+      } else "/Users/jegonzal/Data/google.tsv"
     test_pagerank(fname)
   }
 } // end of GraphTest
