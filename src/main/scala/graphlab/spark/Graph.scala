@@ -1,4 +1,4 @@
-package graphlab
+package graphlab.spark
 
 import spark.SparkContext
 import spark.SparkContext._

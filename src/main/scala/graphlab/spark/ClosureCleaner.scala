@@ -1,4 +1,4 @@
-package graphlab
+package graphlab.spark
 
 import spark._
 import java.lang.reflect.Field
