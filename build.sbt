@@ -27,7 +27,7 @@ libraryDependencies  ++= Seq(
             //"org.scalanlp" %% "breeze-learn" % "0.1",
             //"org.scalanlp" %% "breeze-process" % "0.1",
             //"org.scalanlp" %% "breeze-viz" % "0.1"
-            "org.spark-project" % "spark-core_2.9.2" % "0.7.0-SNAPSHOT"
+            "org.spark-project" % "spark-core_2.9.2" % "0.6.0"
 )
 
 libraryDependencies += "com.yammer.metrics" % "metrics-core" % "3.0.0-SNAPSHOT"
