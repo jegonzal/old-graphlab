@@ -6,11 +6,9 @@ assemblySettings
 
 name := "GraphLab"
 
-version := "1.0"
+version := "1.0-spark"
 
 scalaVersion := "2.9.2"
-
-
 
 
 resolvers ++= Seq(
@@ -22,15 +20,14 @@ resolvers ++= Seq(
     )
 
 
-
-
 libraryDependencies  ++= Seq(
             // other dependencies here
             // pick and choose:
-            "org.scalanlp" %% "breeze-math" % "0.1",
-            "org.scalanlp" %% "breeze-learn" % "0.1",
-            "org.scalanlp" %% "breeze-process" % "0.1",
-            "org.scalanlp" %% "breeze-viz" % "0.1"
+            //"org.scalanlp" %% "breeze-math" % "0.1",
+            //"org.scalanlp" %% "breeze-learn" % "0.1",
+            //"org.scalanlp" %% "breeze-process" % "0.1",
+            //"org.scalanlp" %% "breeze-viz" % "0.1"
+            "org.spark-project" % "spark-core_2.9.2" % "0.7.0-SNAPSHOT-joey"
 )
 
 libraryDependencies += "com.yammer.metrics" % "metrics-core" % "3.0.0-SNAPSHOT"
