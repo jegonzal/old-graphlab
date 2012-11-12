@@ -81,11 +81,11 @@ class Graph[VD: Manifest, ED: Manifest](
    * Todo: Finish commenting
    */
   def iterateGAS[A: Manifest](
-    gather: (Int, Edge[VD, ED]) => (ED, A),
+    gather: (Int, Edge[VD, ED]) => A,
     sum: (A, A) => A,
     default: A,
     apply: (Vertex[VD], A) => VD,
-    scatter: (Int, Edge[VD, ED]) => (ED, Boolean),
+    scatter: (Int, Edge[VD, ED]) => Boolean,
     niter: Int,
     gather_edges: String = "in",
     scatter_edges: String = "out") = {
@@ -147,8 +147,8 @@ class Graph[VD: Manifest, ED: Manifest](
           val sourceVertex = new Vertex[VD](source_id, source_vdata)
           val targetVertex = new Vertex[VD](target_id, target_vdata)
           val edge = new Edge(sourceVertex, targetVertex, edata);
-          lazy val (_, target_gather) = gather_(source_id, edge);
-          lazy val (_, source_gather) = gather_(target_id, edge);
+          lazy val target_gather = gather_(source_id, edge);
+          lazy val source_gather = gather_(target_id, edge);
           // compute the gather as needed
           (if (target_active && (gather_edges_ == "in" || gather_edges_ == "both"))
             List((target_id, target_gather)) else List()) ++
@@ -188,8 +188,8 @@ class Graph[VD: Manifest, ED: Manifest](
             val sourceVertex = new Vertex[VD](source_id, source_vdata)
             val targetVertex = new Vertex[VD](target_id, target_vdata)
             val edge = new Edge(sourceVertex, targetVertex, edata);
-            lazy val (_, new_active_target) = scatter_(source_id, edge)
-            lazy val (_, new_active_source) = scatter_(target_id, edge)
+            lazy val new_active_target = scatter_(source_id, edge)
+            lazy val new_active_source = scatter_(target_id, edge)
             // compute the gather as needed
             (if (target_active && (scatter_edges_ == "in" || scatter_edges_ == "both"))
               List((source_id, new_active_source)) else List()) ++
@@ -215,7 +215,11 @@ class Graph[VD: Manifest, ED: Manifest](
     val vertices_ret = vreplicas.map { case ((pid, vid), vdata) => (vid, vdata) }.distinct(numprocs)
     val edges_ret = part_edges.map { case ((pid, src), (target, edata)) => ((src, target), edata) }
     new Graph(vertices_ret, edges_ret)
-  }
+  } // End of iterate gas
+  
+  
+  
+  
 } // End of Graph RDD
 
 /**
@@ -261,11 +265,11 @@ object GraphTest {
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, 1.0F) }
     val graph2 = new Graph(initial_ranks, graph.edges)
     val graph_ret = graph2.iterateGAS(
-      (me_id, edge) => (edge.data, edge.source.data), // gather
+      (me_id, edge) => edge.source.data, // gather
       (a: Float, b: Float) => a + b, // sum
       0F,
       (v, a: Float) => (0.15 + 0.85 * a).toFloat, // apply
-      (me_id, edge) => (edge.data, false), // scatter
+      (me_id, edge) => false, // scatter
       5).cache()
     println("Computed graph: #edges: " + graph_ret.nedges() + "  #vertices" + graph_ret.nvertices())
     graph_ret.vertices.take(10).foreach(println)
@@ -278,12 +282,11 @@ object GraphTest {
     val graph2 = new Graph(initial_ranks, graph.edges)
     val niterations = 10;
     val graph_ret = graph2.iterateGAS(
-      (me_id, edge) => (edge.data, edge.other(me_id).data), // gather
+      (me_id, edge) => edge.other(me_id).data, // gather
       (a:Int, b:Int) => Math.min(a,b), // sum
       Integer.MAX_VALUE,
       (v, a:Int) => if(a < Integer.MAX_VALUE) a else v.id, // apply
-      (me_id, edge) => 
-        (edge.data, edge.other(me_id).data > edge.vertex(me_id).data), // scatter
+      (me_id, edge) => edge.other(me_id).data > edge.vertex(me_id).data, // scatter
       niterations).cache()
     println("Computed graph: #edges: " + graph_ret.nedges() + "  #vertices" + graph_ret.nvertices())
     graph_ret.vertices.take(10).foreach(println)
