@@ -4,6 +4,8 @@ import spark.SparkContext
 import spark.SparkContext._
 import spark.HashPartitioner
 import spark.storage.StorageLevel
+import spark.KryoRegistrator
+
 
 /**
  * Class containing the id and value of a vertx
@@ -29,6 +31,15 @@ class FirstPartitioner(val numPartitions: Int = 4) extends spark.Partitioner {
   }
   override def equals(other: Any) = other.isInstanceOf[FirstPartitioner]
 }
+
+
+object EdgeDirection extends Enumeration {
+  val None = Value("None")
+  val In = Value("In")
+  val Out = Value("Out")
+  val Both = Value("Both")
+}
+
 
 /**
  * A Graph RDD that supports computation on graphs.
@@ -64,15 +75,22 @@ class Graph[VD: Manifest, ED: Manifest](
       }
       .join(vreplicas).map {
         // Join with the target vertex and rekey back to the source vertex 
-        case ((pid, target_id), ((source_id, source_vdata, source_active, edata), (target_vdata, target_active))) =>
-          ((pid, source_id), (source_id, source_vdata, source_active, edata, target_id, target_vdata, target_active))
+        case ((pid, target_id), 
+              ((source_id, source_vdata, source_active, edata), 
+               (target_vdata, target_active))) =>
+          ((pid, source_id), 
+           (source_id, source_vdata, source_active, edata, 
+            target_id, target_vdata, target_active))
       }
       .filter {
         // Drop any edges that do not have active vertices
-        case ((pid, _), (source_id, source_vdata, source_active, edata, target_id, target_vdata, target_active)) =>
+        case ((pid, _), 
+              (source_id, source_vdata, source_active, edata, 
+               target_id, target_vdata, target_active)) =>
           source_active || target_active
       }
   } // end of join edges and vertices
+
 
   /**
    * Execute the synchronous powergraph abstraction.
@@ -87,15 +105,15 @@ class Graph[VD: Manifest, ED: Manifest](
     apply: (Vertex[VD], A) => VD,
     scatter: (Int, Edge[VD, ED]) => Boolean,
     niter: Int,
-    gather_edges: String = "in",
-    scatter_edges: String = "out") = {
+    gather_edges: EdgeDirection.Value = EdgeDirection.In,
+    scatter_edges: EdgeDirection.Value = EdgeDirection.Out) = {
 
     ClosureCleaner.clean(gather)
     ClosureCleaner.clean(sum)
     ClosureCleaner.clean(apply)
     ClosureCleaner.clean(scatter)
 
-    val numprocs = 64;
+    val numprocs = 128;
     val partitioner = new FirstPartitioner(numprocs);
     val hashpartitioner = new HashPartitioner(numprocs)
 
@@ -126,10 +144,14 @@ class Graph[VD: Manifest, ED: Manifest](
 
     // Loop until convergence or there are no active vertices
     var iter = 0
-    while (iter < niter && vreplicas
-      .map({ case ((_, _), (_, active)) => active }).reduce(_ || _)) {
+    var nactive = vreplicas
+    .map({ case ((_, _), (_, active)) => if(active) 1 else 0 }).reduce(_ + _);
+    while (iter < niter && nactive > 0) {
       // Begin iteration    
-      System.out.println("Begin iteration:" + iter)
+      println("\n\n==========================================================")
+      println("Begin iteration: " + iter)
+      println("Active:          " + nactive);
+          
       iter += 1;
 
       // Gather Phase ---------------------------------------------
@@ -150,9 +172,11 @@ class Graph[VD: Manifest, ED: Manifest](
           lazy val target_gather = gather_(source_id, edge);
           lazy val source_gather = gather_(target_id, edge);
           // compute the gather as needed
-          (if (target_active && (gather_edges_ == "in" || gather_edges_ == "both"))
+          (if (target_active && (gather_edges_ == EdgeDirection.In || 
+                                 gather_edges_ == EdgeDirection.Both))
             List((target_id, target_gather)) else List()) ++
-            (if (source_active && (gather_edges_ == "out" || gather_edges_ == "both"))
+            (if (source_active && (gather_edges_ == EdgeDirection.Out || 
+                                   gather_edges_ == EdgeDirection.Both))
               List((source_id, source_gather)) else List())
         }
       }.reduceByKey(sum_)
@@ -192,9 +216,11 @@ class Graph[VD: Manifest, ED: Manifest](
             lazy val new_active_target = scatter_(source_id, edge)
             lazy val new_active_source = scatter_(target_id, edge)
             // compute the gather as needed
-            (if (target_active && (scatter_edges_ == "in" || scatter_edges_ == "both"))
+            (if (target_active && (scatter_edges_ == EdgeDirection.In || 
+                                   scatter_edges_ == EdgeDirection.Both))
               List((source_id, new_active_source)) else List()) ++
-              (if (source_active && (scatter_edges_ == "out" || scatter_edges_ == "both"))
+              (if (source_active && (scatter_edges_ == EdgeDirection.Out || 
+                                     scatter_edges_ == EdgeDirection.Both))
                 List((target_id, new_active_target)) else List())
           }
         }.reduceByKey(_ | _)
@@ -209,7 +235,9 @@ class Graph[VD: Manifest, ED: Manifest](
           ((pid, vid), (vdata, new_active))
       }.cache()
 
-      vreplicas.take(10).foreach(println)
+      // Compute the number active
+      nactive = vreplicas
+      .map({ case ((_, _), (_, active)) => if(active) 1 else 0 }).reduce(_ + _);
     }
     println("=========================================")
     println("Finished in " + iter + " iterations.")
@@ -258,6 +286,13 @@ object Graph {
   }
 } // End of Graph Object
 
+// class MyRegistrator extends KryoRegistrator {
+//   override def registerClasses(kryo: Kryo) {
+//     kryo.register(classOf[MyClass1])
+//     kryo.register(classOf[MyClass2])
+//   }
+// }
+
 /**
  * Test object for graph class
  */
@@ -293,19 +328,25 @@ object GraphTest {
   def test_connected_component(sc: SparkContext, fname: String) {
     val graph = Graph.load_graph(sc, fname, x => false)
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, vid) }
-    val graph2 = new Graph(initial_ranks, graph.edges)
+    val graph2 = new Graph(initial_ranks, graph.edges).cache
     val niterations = 10;
     val graph_ret = graph2.iterateGAS(
       (me_id, edge) => edge.other(me_id).data, // gather
       (a:Int, b:Int) => Math.min(a,b), // sum
       Integer.MAX_VALUE,
-      (v, a:Int) => if(a < Integer.MAX_VALUE) a else v.id, // apply
+      (v, a:Int) => Math.min(v.data, a), // apply
       (me_id, edge) => edge.other(me_id).data > edge.vertex(me_id).data, // scatter
-      niterations).cache()
+      niterations,
+      gather_edges = EdgeDirection.Both,
+      scatter_edges = EdgeDirection.Both).cache()
     graph_ret.vertices.take(10).foreach(println)
   }
 
   def main(args: Array[String]) {
+
+    // System.setProperty("spark.serializer", "spark.KryoSerializer")
+    // System.setProperty("spark.kryo.registrator", classOf[KryoRegistrator].getName)
+
     val spark_master = "spark://128.2.204.196:7090"
  //    val spark_master = "local[4]"
     val jobname = "graphtest"
@@ -318,7 +359,7 @@ object GraphTest {
         println(args(0))
         args(0)
       } else "hdfs://128.2.204.196/users/jegonzal/google.tsv"
-    test_pagerank(sc, fname)
+    test_connected_component(sc, fname)
 
     sc.stop()
   }
