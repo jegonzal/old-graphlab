@@ -8,12 +8,12 @@ import spark.storage.StorageLevel
 /**
  * Class containing the id and value of a vertx
  */
-class Vertex[VD](val id: Int, val data: VD);
+case class Vertex[VD](val id: Int, val data: VD);
 
 /**
  * Class containing both vertices and the edge data associated with an edge
  */
-class Edge[VD, ED](val source: Vertex[VD], val target: Vertex[VD],
+case class Edge[VD, ED](val source: Vertex[VD], val target: Vertex[VD],
   val data: ED) {
   def other(vid: Int) = { if (source.id == vid) target else source; }
   def vertex(vid: Int) = { if (source.id == vid) source else target; }
@@ -132,7 +132,7 @@ class Graph[VD: Manifest, ED: Manifest](
       System.out.println("Begin iteration:" + iter)
       iter += 1;
 
-      /** Gather Phase --------------------------------------------- */
+      // Gather Phase ---------------------------------------------
       val gather_ = gather
       val sum_ = sum
       val apply_ = apply
@@ -157,7 +157,8 @@ class Graph[VD: Manifest, ED: Manifest](
         }
       }.reduceByKey(sum_)
 
-      /** Apply Phase --------------------------------------------- */
+
+      // Apply Phase ---------------------------------------------
       vreplicas = vreplicas
         .map {
           // Remove the pid information
@@ -177,7 +178,7 @@ class Graph[VD: Manifest, ED: Manifest](
           case (vid, ((vdata, active), pid)) => ((pid, vid), (vdata, active))
         }.cache()
 
-      /** Scatter Phase ---------------------------------------------*/
+      // Scatter Phase ---------------------------------------------
       val scatter_ = scatter
       val scatter_edges_ = scatter_edges
       val active_vertices = join_edges_and_vertices(vreplicas, part_edges)
@@ -210,6 +211,8 @@ class Graph[VD: Manifest, ED: Manifest](
 
       vreplicas.take(10).foreach(println)
     }
+    println("=========================================")
+    println("Finished in " + iter + " iterations.")
 
     // Collapse vreplicas, edges and retuen a new graph
     val vertices_ret = vreplicas.map { case ((pid, vid), vdata) => (vid, vdata) }.distinct(numprocs)
@@ -240,11 +243,12 @@ object Graph {
         val source :: target :: tail = line.split("\t").toList
         val edata = edge_parser(tail.mkString("\t"))
         ((source.trim.toInt, target.trim.toInt), edata)
-      }).partitionBy(partitioner).persist(StorageLevel.DISK_ONLY)
+      }).partitionBy(partitioner).cache() //persist(StorageLevel.DISK_ONLY)
 
     val vertices = edges.flatMap {
       case ((source, target), _) => List((source, 1), (target, 1))
-    }.reduceByKey(_ + _)
+    }.reduceByKey(_ + _).cache()
+
     val graph = new Graph[Int, ED](vertices, edges)
     
     println("Loaded graph:" +
@@ -259,24 +263,34 @@ object Graph {
  */
 object GraphTest {
 
-  def test_pagerank(fname: String) {
-    val sc = new SparkContext("local[4]", "pagerank")
+  def test_pagerank(sc: SparkContext, fname: String) {
     val graph = Graph.load_graph(sc, fname, x => false)
-    val initial_ranks = graph.vertices.map { case (vid, _) => (vid, 1.0F) }
-    val graph2 = new Graph(initial_ranks, graph.edges)
+    val out_degree = graph.edges.map { 
+      case ((src, target), data) => (src, 1) }.reduceByKey(_+_);
+    val initial_vdata = graph.vertices.join(out_degree).map {
+      case (vid, (out_degree, _)) => (vid, (out_degree, 1.0F, 1.0F));
+    }
+    val graph2 = new Graph(initial_vdata, graph.edges).cache()
     val graph_ret = graph2.iterateGAS(
-      (me_id, edge) => edge.source.data, // gather
+      (me_id, edge) => {
+        val Edge(Vertex(_,(out_degree,rank,_)),_,_) = edge
+        rank/out_degree //src.data._2/src.data._1
+      }, // gather
       (a: Float, b: Float) => a + b, // sum
       0F,
-      (v, a: Float) => (0.15 + 0.85 * a).toFloat, // apply
-      (me_id, edge) => false, // scatter
-      5).cache()
+      (vertex, a: Float) => {
+        val Vertex(vid, (out_degree, rank, old_rank)) = vertex
+        (out_degree, (0.15 + 0.85 * a).toFloat, rank)
+      }, // apply
+      (me_id, edge) => {
+        val Edge(Vertex(_,(_,new_rank, old_rank)), _, _) = edge
+        Math.abs(new_rank - old_rank) > 0.01}, // scatter
+      10).cache()
     println("Computed graph: #edges: " + graph_ret.nedges() + "  #vertices" + graph_ret.nvertices())
     graph_ret.vertices.take(10).foreach(println)
   }
 
-  def test_connected_component(fname: String) {
-    val sc = new SparkContext("local[4]", "connected_component")
+  def test_connected_component(sc: SparkContext, fname: String) {
     val graph = Graph.load_graph(sc, fname, x => false)
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, vid) }
     val graph2 = new Graph(initial_ranks, graph.edges)
@@ -288,17 +302,25 @@ object GraphTest {
       (v, a:Int) => if(a < Integer.MAX_VALUE) a else v.id, // apply
       (me_id, edge) => edge.other(me_id).data > edge.vertex(me_id).data, // scatter
       niterations).cache()
-    println("Computed graph: #edges: " + graph_ret.nedges() + "  #vertices" + graph_ret.nvertices())
     graph_ret.vertices.take(10).foreach(println)
   }
 
   def main(args: Array[String]) {
+    val spark_master = "spark://128.2.204.196:7090"
+ //    val spark_master = "local[4]"
+    val jobname = "graphtest"
+    val spark_home = "/home/jegonzal/local/spark"
+    val graphlab_jar = List("/home/jegonzal/Documents/scala_graphlab/graphlab/target/scala-2.9.2/graphlab_2.9.2-1.0-spark.jar")
+    val sc = new SparkContext(spark_master, jobname, spark_home, graphlab_jar)
+  
     val fname = 
-      if (args.length == 1) {
+      if (args.length > 0) {
         println(args(0))
         args(0)
-      } else "/Users/jegonzal/Data/google.tsv"
-    test_pagerank(fname)
+      } else "hdfs://128.2.204.196/users/jegonzal/google.tsv"
+    test_pagerank(sc, fname)
+
+    sc.stop()
   }
 } // end of GraphTest
 
