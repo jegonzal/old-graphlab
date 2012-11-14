@@ -6,10 +6,11 @@ assemblySettings
 
 name := "GraphLab"
 
-version := "1.0-spark"
+version := "1.0-scala"
 
 scalaVersion := "2.9.2"
 
+scalacOptions ++= Seq("-unchecked", "-deprecation")
 
 resolvers ++= Seq(
       "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/",
