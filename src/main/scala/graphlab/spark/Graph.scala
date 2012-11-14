@@ -8,7 +8,7 @@ import spark.storage.StorageLevel
 import spark.KryoRegistrator
 
 /**
- * Class containing the id and value of a vertx
+ * Class containing the id and value of a vertex
  */
 case class Vertex[VD](val id: Int, val data: VD);
 
@@ -366,7 +366,7 @@ object GraphTest {
       val graph = if (args.length > 1) load_file(sc, args(1)) else toy_graph(sc)
       test_connected_component(graph)
     } catch {
-      case e => println(e)
+      case e: Throwable => println(e)
     } 
     
     if(sc != null) sc.stop()
