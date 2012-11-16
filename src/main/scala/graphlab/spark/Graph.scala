@@ -21,22 +21,31 @@ case class Edge[VD, ED](val source: Vertex[VD], val target: Vertex[VD],
   def vertex(vid: Int) = { if (source.id == vid) source else target; }
 } // end of class edge
 
-/**
- * A partitioner for tuples that only examines the first value in the tuple.
- */
-class FirstPartitioner(val numPartitions: Int = 4) extends spark.Partitioner {
-  def getPartition(key: Any): Int = key match {
-    case (first: Int, second: Int) => abs(first) % numPartitions
-    case _ => 0
-  }
-  override def equals(other: Any) = other.isInstanceOf[FirstPartitioner]
-}
-
 object EdgeDirection extends Enumeration {
   val None = Value("None")
   val In = Value("In")
   val Out = Value("Out")
   val Both = Value("Both")
+}
+
+//class PidVidKey(val pid: Int = 0, val vid: Int = 0) {
+//  override def equals(other: Any) = {
+//    other match {
+//      case other: PidVidKey => vid == other.vid
+//      case _ => false
+//    }
+//  }
+//}
+
+/**
+ * A partitioner for tuples that only examines the first value in the tuple.
+ */
+class PidVidPartitioner(val numPartitions: Int = 4) extends spark.Partitioner {
+  def getPartition(key: Any): Int = key match {
+    case (pid: Int, vid: Int) => abs(pid) % numPartitions
+    case _ => 0
+  }
+  override def equals(other: Any) = other.isInstanceOf[PidVidPartitioner]
 }
 
 /**
@@ -63,9 +72,13 @@ class Graph[VD: Manifest, ED: Manifest](
    * the vertex and edge data.
    */
   def join_edges_and_vertices(
-    vreplicas: spark.RDD[((Int, Int), (VD, Boolean))],
-    part_edges: spark.RDD[((Int, Int), (Int, ED))]) = {
-    part_edges
+    vTable: spark.RDD[(Int, (VD, Boolean))],
+    eTable: spark.RDD[((Int, Int), (Int, ED))],
+    vid2pid: spark.RDD[(Int, Int)]) = {
+    val vreplicas = vTable.join(vid2pid).map {
+      case (vid, ((vdata, active), pid)) => ((pid, vid), (vdata, active))
+    }.cache
+    eTable
       .join(vreplicas).map {
         // Join with the source vertex data and rekey with target vertex
         case ((pid, source_id), ((target_id, edata), (source_vdata, source_active))) =>
@@ -111,12 +124,12 @@ class Graph[VD: Manifest, ED: Manifest](
     ClosureCleaner.clean(scatter)
 
     val numprocs = 64;
-    val partitioner = new FirstPartitioner(numprocs);
+    val partitioner = new PidVidPartitioner(numprocs);
     val hashpartitioner = new HashPartitioner(numprocs)
 
     // Partition the edges over machines.  The part_edges table has the format
     // ((pid, source), (target, data))
-    var part_edges =
+    var eTable =
       edges.map {
         case ((source, target), data) => {
           // val pid = abs((source, target).hashCode()) % numprocs
@@ -125,24 +138,20 @@ class Graph[VD: Manifest, ED: Manifest](
         }
       }.partitionBy(partitioner).cache()
 
-    // Duplicate the vertices for all machines that depend on them.  
-    // ((pid, vid), (data, is_active))
-    var vreplicas =
-      part_edges.flatMap {
-        case ((pid, source), (target, _)) => List((source, pid), (target, pid))
-      }.distinct(partitioner.numPartitions).join(vertices).map {
-        case (vid, (pid, data)) => ((pid, vid), (data, true))
-      }.partitionBy(partitioner).cache()
+    // The master vertices are used during the apply phase   
+    var vTable = vertices.map { case (vid, vdata) => (vid, (vdata, true)) }
 
     // Create a map from vertex id to the partitions that contain that vertex
     // (vid, pid)
-    val vlocale = vreplicas.map { case ((pid, vid), vdata) => (vid, pid) }
-      .partitionBy(hashpartitioner).cache()
+    val vid2pid = eTable.flatMap {
+      case ((pid, source), (target, _)) => Array((source, pid), (target, pid))
+    }.distinct(1000).cache()
 
     // Loop until convergence or there are no active vertices
     var iter = 0
-    var nactive = vreplicas
-      .map({ case ((_, _), (_, active)) => if (active) 1 else 0 }).reduce(_ + _);
+    var nactive = vTable.map {
+      case (_, (_, active)) => if (active) 1 else 0
+    }.reduce(_ + _);
     while (iter < niter && nactive > 0) {
       // Begin iteration    
       println("\n\n==========================================================")
@@ -159,33 +168,28 @@ class Graph[VD: Manifest, ED: Manifest](
       val default_ = default
 
       // Compute the accumulator for each vertex
-      val accum = join_edges_and_vertices(vreplicas, part_edges).flatMap {
-        case ((pid, source),
-          (source_id, source_vdata, source_active, edata,
-            target_id, target_vdata, target_active)) => {
-          val sourceVertex = new Vertex[VD](source_id, source_vdata)
-          val targetVertex = new Vertex[VD](target_id, target_vdata)
-          val edge = new Edge(sourceVertex, targetVertex, edata);
-          lazy val source_gather = gather_(source_id, edge);
-          lazy val target_gather = gather_(target_id, edge);
-          // compute the gather as needed
-          (if (target_active && (gather_edges_ == EdgeDirection.In ||
-            gather_edges_ == EdgeDirection.Both))
-            List((target_id, target_gather)) else List()) ++
-            (if (source_active && (gather_edges_ == EdgeDirection.Out ||
+      val accum = join_edges_and_vertices(vTable, eTable, vid2pid)
+        .flatMap {
+          case ((pid, source),
+            (source_id, source_vdata, source_active, edata,
+              target_id, target_vdata, target_active)) => {
+            val sourceVertex = new Vertex[VD](source_id, source_vdata)
+            val targetVertex = new Vertex[VD](target_id, target_vdata)
+            val edge = new Edge(sourceVertex, targetVertex, edata);
+            lazy val source_gather = gather_(source_id, edge);
+            lazy val target_gather = gather_(target_id, edge);
+            // compute the gather as needed
+            (if (target_active && (gather_edges_ == EdgeDirection.In ||
               gather_edges_ == EdgeDirection.Both))
-              List((source_id, source_gather)) else List())
-        }
-      }.reduceByKey(sum_)
+              List((target_id, target_gather)) else List()) ++
+              (if (source_active && (gather_edges_ == EdgeDirection.Out ||
+                gather_edges_ == EdgeDirection.Both))
+                List((source_id, source_gather)) else List())
+          }
+        }.reduceByKey(sum_)
 
       // Apply Phase ---------------------------------------------
-      vreplicas = vreplicas
-        .map {
-          // Remove the pid information
-          case ((pid, vid), (data, active)) => (vid, (data, active))
-        }
-        .distinct(numprocs) // Reduce to only one copy of each vertex
-        .leftOuterJoin(accum) // Merge with the gather result
+      vTable = vTable.leftOuterJoin(accum) // Merge with the gather result
         .map { // Execute the apply if necessary
           case (vid, ((data, true), Some(accum))) =>
             (vid, (apply_(new Vertex[VD](vid, data), accum), true))
@@ -193,15 +197,11 @@ class Graph[VD: Manifest, ED: Manifest](
             (vid, (apply_(new Vertex[VD](vid, data), default_), true))
           case (vid, ((data, false), _)) => (vid, (data, false))
         }
-        .join(vlocale) // Duplicate
-        .map { // Reattach the pid information 
-          case (vid, ((vdata, active), pid)) => ((pid, vid), (vdata, active))
-        }.cache()
 
       // Scatter Phase ---------------------------------------------
       val scatter_ = scatter
       val scatter_edges_ = scatter_edges
-      val active_vertices = join_edges_and_vertices(vreplicas, part_edges)
+      val active_vertices = join_edges_and_vertices(vTable, eTable, vid2pid)
         .flatMap {
           case ((pid, source),
             (source_id, source_vdata, source_active, edata,
@@ -221,27 +221,22 @@ class Graph[VD: Manifest, ED: Manifest](
           }
         }.reduceByKey(_ | _)
 
-      val replicate_active = vlocale.leftOuterJoin(active_vertices).map {
-        case (vid, (pid, Some(active))) => ((pid, vid), active)
-        case (vid, (pid, None)) => ((pid, vid), false)
-      }.cache()
-
-      vreplicas = vreplicas.join(replicate_active).map {
-        case ((pid, vid), ((vdata, old_active), new_active)) =>
-          ((pid, vid), (vdata, new_active))
+      // update active vertices
+      vTable = vTable.leftOuterJoin(active_vertices).map{
+        case (vid, ((vdata, _), Some(new_active))) => (vid, (vdata, new_active))
+        case (vid, ((vdata, _), None)) => (vid, (vdata, false))
       }.cache()
 
       // Compute the number active
-      nactive = vreplicas
-        .map({ case ((_, _), (_, active)) => if (active) 1 else 0 }).reduce(_ + _);
+      nactive = vTable.map{
+        case (_, (_, active)) => if (active) 1 else 0
+      }.reduce(_ + _);
     }
     println("=========================================")
     println("Finished in " + iter + " iterations.")
 
     // Collapse vreplicas, edges and retuen a new graph
-    val vertices_ret = vreplicas.map { case ((pid, vid), vdata) => (vid, vdata) }.distinct(numprocs)
-    val edges_ret = part_edges.map { case ((pid, src), (target, edata)) => ((src, target), edata) }
-    new Graph(vertices_ret, edges_ret)
+    new Graph(vTable.map{ case (vid,(vdata,_)) => (vid,vdata) }, edges)
   } // End of iterate gas
 
 } // End of Graph RDD
@@ -257,7 +252,7 @@ object Graph {
   def load_graph[ED: Manifest](sc: SparkContext,
     fname: String, edge_parser: String => ED) = {
 
-    val partitioner = new FirstPartitioner()
+    val partitioner = new PidVidPartitioner()
 
     val edges = sc.textFile(fname).map(
       line => {
@@ -367,10 +362,9 @@ object GraphTest {
       test_connected_component(graph)
     } catch {
       case e: Throwable => println(e)
-    } 
-    
-    if(sc != null) sc.stop()
-    
+    }
+
+    if (sc != null) sc.stop()
 
   }
 } // end of GraphTest
