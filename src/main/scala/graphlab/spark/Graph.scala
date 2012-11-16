@@ -179,12 +179,14 @@ class Graph[VD: Manifest, ED: Manifest](
             lazy val source_gather = gather_(source_id, edge);
             lazy val target_gather = gather_(target_id, edge);
             // compute the gather as needed
-            (if (target_active && (gather_edges_ == EdgeDirection.In ||
+            var result = new Array[(Int, A)](0)
+            if (target_active && (gather_edges_ == EdgeDirection.In ||
               gather_edges_ == EdgeDirection.Both))
-              List((target_id, target_gather)) else List()) ++
-              (if (source_active && (gather_edges_ == EdgeDirection.Out ||
-                gather_edges_ == EdgeDirection.Both))
-                List((source_id, source_gather)) else List())
+              result ++= Array((target_id, target_gather))
+            if (source_active && (gather_edges_ == EdgeDirection.Out ||
+              gather_edges_ == EdgeDirection.Both))
+              result ++ Array((source_id, source_gather))
+            result
           }
         }.reduceByKey(sum_)
 
@@ -212,23 +214,25 @@ class Graph[VD: Manifest, ED: Manifest](
             lazy val new_active_target = scatter_(source_id, edge)
             lazy val new_active_source = scatter_(target_id, edge)
             // compute the gather as needed
-            (if (target_active && (scatter_edges_ == EdgeDirection.In ||
+            var result = new Array[(Int, Boolean)](0)
+            if (target_active && (scatter_edges_ == EdgeDirection.In ||
               scatter_edges_ == EdgeDirection.Both))
-              List((source_id, new_active_source)) else List()) ++
-              (if (source_active && (scatter_edges_ == EdgeDirection.Out ||
-                scatter_edges_ == EdgeDirection.Both))
-                List((target_id, new_active_target)) else List())
+              result ++= Array((source_id, new_active_source))
+            if (source_active && (scatter_edges_ == EdgeDirection.Out ||
+              scatter_edges_ == EdgeDirection.Both))
+              result ++= Array((target_id, new_active_target))
+            result
           }
         }.reduceByKey(_ | _)
 
       // update active vertices
-      vTable = vTable.leftOuterJoin(active_vertices).map{
+      vTable = vTable.leftOuterJoin(active_vertices).map {
         case (vid, ((vdata, _), Some(new_active))) => (vid, (vdata, new_active))
         case (vid, ((vdata, _), None)) => (vid, (vdata, false))
       }.cache()
 
       // Compute the number active
-      nactive = vTable.map{
+      nactive = vTable.map {
         case (_, (_, active)) => if (active) 1 else 0
       }.reduce(_ + _);
     }
@@ -236,7 +240,7 @@ class Graph[VD: Manifest, ED: Manifest](
     println("Finished in " + iter + " iterations.")
 
     // Collapse vreplicas, edges and retuen a new graph
-    new Graph(vTable.map{ case (vid,(vdata,_)) => (vid,vdata) }, edges)
+    new Graph(vTable.map { case (vid, (vdata, _)) => (vid, vdata) }, edges)
   } // End of iterate gas
 
 } // End of Graph RDD
