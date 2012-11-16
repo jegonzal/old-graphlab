@@ -322,7 +322,7 @@ object GraphTest {
       0F,
       (vertex, a: Float) => {
         val Vertex(vid, (out_degree, rank, old_rank)) = vertex
-        (out_degree, (0.15 + 0.85 * a).toFloat, rank)
+        (out_degree, (0.15F + 0.85F * a), rank)
       }, // apply
       (me_id, edge) => {
         val Edge(Vertex(_, (_, new_rank, old_rank)), _, _) = edge
