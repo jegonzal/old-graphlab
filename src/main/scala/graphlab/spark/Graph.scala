@@ -93,13 +93,13 @@ class Graph[VD: Manifest, ED: Manifest](
             (source_id, source_vdata, source_active, edata,
               target_id, target_vdata, target_active))
       }
-      .filter {
-        // Drop any edges that do not have active vertices
-        case ((pid, _),
-          (source_id, source_vdata, source_active, edata,
-            target_id, target_vdata, target_active)) =>
-          source_active || target_active
-      }
+//      .filter {
+//        // Drop any edges that do not have active vertices
+//        case ((pid, _),
+//          (source_id, source_vdata, source_active, edata,
+//            target_id, target_vdata, target_active)) =>
+//          source_active || target_active
+//      }
   } // end of join edges and vertices
 
   /**
@@ -109,11 +109,11 @@ class Graph[VD: Manifest, ED: Manifest](
    * Todo: Finish commenting
    */
   def iterateGAS[A: Manifest](
-    gather: (Int, Edge[VD, ED]) => A,
+    gather: (Int, Edge[VD, ED]) => (ED, A),
     sum: (A, A) => A,
     default: A,
     apply: (Vertex[VD], A) => VD,
-    scatter: (Int, Edge[VD, ED]) => Boolean,
+    scatter: (Int, Edge[VD, ED]) => (ED, Boolean),
     niter: Int,
     gather_edges: EdgeDirection.Value = EdgeDirection.In,
     scatter_edges: EdgeDirection.Value = EdgeDirection.Out) = {
@@ -123,7 +123,7 @@ class Graph[VD: Manifest, ED: Manifest](
     ClosureCleaner.clean(apply)
     ClosureCleaner.clean(scatter)
 
-    val numprocs = 64;
+    val numprocs = 4;
     val partitioner = new PidVidPartitioner(numprocs);
     val hashpartitioner = new HashPartitioner(numprocs)
 
@@ -168,27 +168,49 @@ class Graph[VD: Manifest, ED: Manifest](
       val default_ = default
 
       // Compute the accumulator for each vertex
-      val accum = join_edges_and_vertices(vTable, eTable, vid2pid)
-        .flatMap {
-          case ((pid, source),
-            (source_id, source_vdata, source_active, edata,
-              target_id, target_vdata, target_active)) => {
-            val sourceVertex = new Vertex[VD](source_id, source_vdata)
-            val targetVertex = new Vertex[VD](target_id, target_vdata)
-            val edge = new Edge(sourceVertex, targetVertex, edata);
-            lazy val source_gather = gather_(source_id, edge);
-            lazy val target_gather = gather_(target_id, edge);
-            // compute the gather as needed
-            var result = new Array[(Int, A)](0)
-            if (target_active && (gather_edges_ == EdgeDirection.In ||
-              gather_edges_ == EdgeDirection.Both))
-              result ++= Array((target_id, target_gather))
-            if (source_active && (gather_edges_ == EdgeDirection.Out ||
-              gather_edges_ == EdgeDirection.Both))
-              result ++ Array((source_id, source_gather))
-            result
+      val gTable = join_edges_and_vertices(vTable, eTable, vid2pid)
+        .mapValues {
+          case (sourceId, sourceVdata, sourceActive, edata,
+            targetId, targetVdata, targetActive) => {
+            val sourceVertex = new Vertex[VD](sourceId, sourceVdata)
+            val targetVertex = new Vertex[VD](targetId, targetVdata)
+            var newEdata = edata
+            var targetAccum: Option[A] = None
+            var sourceAccum: Option[A] = None
+            if (targetActive && (gather_edges_ == EdgeDirection.In ||
+              gather_edges_ == EdgeDirection.Both)) { // gather on the target
+              val edge = new Edge(sourceVertex, targetVertex, newEdata);
+              val result = gather_(targetId, edge)
+              targetAccum = Option(result._2)
+              newEdata = result._1
+            }
+            if (sourceActive && (gather_edges_ == EdgeDirection.Out ||
+              gather_edges_ == EdgeDirection.Both)) { // gather on the source
+              val edge = new Edge(sourceVertex, targetVertex, newEdata);
+              val result = gather_(sourceId, edge)
+              sourceAccum = Option(result._2);
+              newEdata = result._1;
+            }
+            (sourceId, sourceAccum, targetId, targetAccum, newEdata)
           }
-        }.reduceByKey(sum_)
+        }.cache()
+
+      // update the edge data
+      eTable = gTable.mapValues {
+        case (sourceId, _, targetId, _, edata) => (targetId, edata)
+      }
+        
+      // Compute the final sum
+      val accum = gTable.flatMap {
+        case (_, (sourceId, Some(sourceAccum), targetId, Some(targetAccum), _)) =>
+          Array((sourceId, sourceAccum), (targetId, targetAccum))
+        case (_, (sourceId, None, targetId, Some(targetAccum), _)) =>
+          Array((targetId, targetAccum))
+        case (_, (sourceId, Some(sourceAccum), targetId, None, _)) =>
+          Array((sourceId, sourceAccum))
+        case (_, (sourceId, None, targetId, None, _)) =>
+          Array[(Int, A)]()
+      }.reduceByKey(sum_)
 
       // Apply Phase ---------------------------------------------
       vTable = vTable.leftOuterJoin(accum) // Merge with the gather result
@@ -203,30 +225,46 @@ class Graph[VD: Manifest, ED: Manifest](
       // Scatter Phase ---------------------------------------------
       val scatter_ = scatter
       val scatter_edges_ = scatter_edges
-      val active_vertices = join_edges_and_vertices(vTable, eTable, vid2pid)
-        .flatMap {
-          case ((pid, source),
-            (source_id, source_vdata, source_active, edata,
-              target_id, target_vdata, target_active)) => {
-            val sourceVertex = new Vertex[VD](source_id, source_vdata)
-            val targetVertex = new Vertex[VD](target_id, target_vdata)
-            val edge = new Edge(sourceVertex, targetVertex, edata);
-            lazy val new_active_target = scatter_(source_id, edge)
-            lazy val new_active_source = scatter_(target_id, edge)
-            // compute the gather as needed
-            var result = new Array[(Int, Boolean)](0)
-            if (target_active && (scatter_edges_ == EdgeDirection.In ||
-              scatter_edges_ == EdgeDirection.Both))
-              result ++= Array((source_id, new_active_source))
-            if (source_active && (scatter_edges_ == EdgeDirection.Out ||
-              scatter_edges_ == EdgeDirection.Both))
-              result ++= Array((target_id, new_active_target))
-            result
+      val sTable = join_edges_and_vertices(vTable, eTable, vid2pid)
+        .mapValues {
+          case (sourceId, sourceVdata, sourceActive, edata,
+            targetId, targetVdata, targetActive) => {
+            val sourceVertex = new Vertex[VD](sourceId, sourceVdata)
+            val targetVertex = new Vertex[VD](targetId, targetVdata)
+            var newEdata = edata
+            var newTargetActive = false
+            var newSourceActive = false
+            if (targetActive && (scatter_edges_ == EdgeDirection.In ||
+              scatter_edges_ == EdgeDirection.Both)) { // scatter on the target
+              val edge = new Edge(sourceVertex, targetVertex, newEdata);
+              val result = scatter_(targetId, edge)
+              newSourceActive = result._2
+              newEdata = result._1
+            }
+            if (sourceActive && (scatter_edges_ == EdgeDirection.Out ||
+              scatter_edges_ == EdgeDirection.Both)) { // scatter on the source
+              val edge = new Edge(sourceVertex, targetVertex, newEdata);
+              val result = scatter_(sourceId, edge)
+              newTargetActive = result._2;
+              newEdata = result._1;
+            }
+            (sourceId, newSourceActive, targetId, newTargetActive, newEdata)
           }
-        }.reduceByKey(_ | _)
+        }.cache()
+
+      // update the edge data
+      eTable = sTable.mapValues {
+        case (sourceId, _, targetId, _, edata) => (targetId, edata)
+      }
+
+      val activeVertices = sTable.flatMap {
+        case (_, (sourceId, sourceActive, targetId, targetActive, _)) =>
+          Array((sourceId, sourceActive), (targetId, targetActive))
+      }.reduceByKey(_ || _)
+
 
       // update active vertices
-      vTable = vTable.leftOuterJoin(active_vertices).map {
+      vTable = vTable.leftOuterJoin(activeVertices).map {
         case (vid, ((vdata, _), Some(new_active))) => (vid, (vdata, new_active))
         case (vid, ((vdata, _), None)) => (vid, (vdata, false))
       }.cache()
@@ -240,7 +278,8 @@ class Graph[VD: Manifest, ED: Manifest](
     println("Finished in " + iter + " iterations.")
 
     // Collapse vreplicas, edges and retuen a new graph
-    new Graph(vTable.map { case (vid, (vdata, _)) => (vid, vdata) }, edges)
+    new Graph(vTable.map { case (vid, (vdata, _)) => (vid, vdata) }, 
+        eTable.map{ case ((pid, source), (target, edata)) => ((source, target), edata)} )
   } // End of iterate gas
 
 } // End of Graph RDD
@@ -291,8 +330,8 @@ object Graph {
 object GraphTest {
 
   def toy_graph(sc: SparkContext) = {
-    val edges = Array((1 -> 2, "1->2"), (2 -> 3, "2->3"), (3 -> 1, "3->1"),
-      (4 -> 5, "4->5"), (5 -> 6, "5->6"), (6 -> 7, "6->7"), (7 -> 8, "7->8"))
+    val edges = Array((1 -> 2, 0), (2 -> 3, 0), (3 -> 1, 0),
+      (4 -> 5, 0), (5 -> 6, 0), (6 -> 7, 0), (7 -> 8, 0))
 
     val vertices = (1 to 8).map((_, 1))
     val graph = new Graph(sc.parallelize(vertices, 2), sc.parallelize(edges, 2)).cache
@@ -300,11 +339,11 @@ object GraphTest {
   }
 
   def load_file(sc: SparkContext, fname: String) = {
-    val graph = Graph.load_graph(sc, fname, x => "")
+    val graph = Graph.load_graph(sc, fname, x => 0)
     graph
   }
 
-  def test_pagerank(graph: Graph[Int, String]) {
+  def test_pagerank(graph: Graph[Int, Int]) {
     val out_degree = graph.edges.map {
       case ((src, target), data) => (src, 1)
     }.reduceByKey(_ + _);
@@ -314,8 +353,8 @@ object GraphTest {
     val graph2 = new Graph(initial_vdata, graph.edges).cache()
     val graph_ret = graph2.iterateGAS(
       (me_id, edge) => {
-        val Edge(Vertex(_, (out_degree, rank, _)), _, _) = edge
-        rank / out_degree //src.data._2/src.data._1
+        val Edge(Vertex(_, (out_degree, rank, _)), _, edata) = edge
+        (edata, rank / out_degree)
       }, // gather
       (a: Float, b: Float) => a + b, // sum
       0F,
@@ -324,28 +363,30 @@ object GraphTest {
         (out_degree, (0.15F + 0.85F * a), rank)
       }, // apply
       (me_id, edge) => {
-        val Edge(Vertex(_, (_, new_rank, old_rank)), _, _) = edge
-        abs(new_rank - old_rank) > 0.01
+        val Edge(Vertex(_, (_, new_rank, old_rank)), _, edata) = edge
+        (edata, abs(new_rank - old_rank) > 0.01)
       }, // scatter
       10).cache()
     println("Computed graph: #edges: " + graph_ret.nedges() + "  #vertices" + graph_ret.nvertices())
     graph_ret.vertices.take(10).foreach(println)
   }
 
-  def test_connected_component(graph: Graph[Int, String]) {
+  def test_connected_component(graph: Graph[Int, Int]) {
     val initial_ranks = graph.vertices.map { case (vid, _) => (vid, vid) }
     val graph2 = new Graph(initial_ranks, graph.edges).cache
     val niterations = 100;
     val graph_ret = graph2.iterateGAS(
-      (me_id, edge) => edge.other(me_id).data, // gather
+      (me_id, edge) => (edge.data, edge.other(me_id).data), // gather
       (a: Int, b: Int) => min(a, b), // sum
       Integer.MAX_VALUE,
       (v, a: Int) => min(v.data, a), // apply
-      (me_id, edge) => edge.other(me_id).data > edge.vertex(me_id).data, // scatter
+      (me_id, edge) => (edge.data + 1, 
+          edge.other(me_id).data > edge.vertex(me_id).data), // scatter
       niterations,
       gather_edges = EdgeDirection.Both,
       scatter_edges = EdgeDirection.Both).cache()
     graph_ret.vertices.collect.foreach(println)
+    graph_ret.edges.take(10).foreach(println)
   }
 
   def main(args: Array[String]) {
